@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js'
 import { repoFromRow } from '../db/mappers.js'
 import * as GitService from './GitService.js'
 import * as AIService from './AIService.js'
-import type { AnalysisJob, TestSet, Test } from '../types/index.js'
+import type { AnalysisJob, Test } from '../types/index.js'
 import { ulid } from '../utils/ulid.js'
 
 export class NoNewCommitsError extends Error {
@@ -137,16 +137,15 @@ function sameCommitRanges(
 export function markTestSetPassed(testSetId: string): void {
   const db = getDb()
 
-  const testSet = db.prepare('SELECT * FROM test_sets WHERE id = ?').get(testSetId) as
-    | TestSet
+  const testSet = db.prepare('SELECT commit_ranges FROM test_sets WHERE id = ?').get(testSetId) as
+    | { commit_ranges: string | null }
     | undefined
 
   if (!testSet) throw new Error('Test set not found')
+  if (!testSet.commit_ranges) throw new Error('Test set has no commit ranges')
 
   const commitRanges: Record<string, { from: string | null; to: string }> =
-    typeof testSet.commitRanges === 'string'
-      ? JSON.parse(testSet.commitRanges as unknown as string)
-      : testSet.commitRanges
+    JSON.parse(testSet.commit_ranges)
 
   db.transaction(() => {
     const updateRepo = db.prepare(

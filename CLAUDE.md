@@ -61,6 +61,10 @@ npm workspaces monorepo with two packages:
 
 **Analysis cursor:** `commit_ranges` is per repository (`repoId -> { from, to }`); passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each repo.
 
+**Uninitialized analysis cursor:** When `last_analyzed_commit_hash` is null, `GitService.getCommitsSince()` uses `git log -50`, so repo cards show up to `50 new` until the first passed test set advances the cursor.
+
+**Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; frontend relative-time code must treat DB timestamps as UTC or store ISO strings with `Z`.
+
 **Duplicate analysis guard:** `AnalysisService.run()` must reject an existing `active` test set with the same `commit_ranges` before calling AI, returning `active_test_set_exists:<id>`.
 
 **Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.

@@ -61,8 +61,11 @@ export default function TestItem({
   return (
     <div className="group flex items-start gap-3 px-4 py-3 rounded-lg hover:bg-gray-900/60 transition-colors">
       <button
+        type="button"
         onClick={() => onStatusChange(STATUS_CYCLE[test.status])}
-        className="mt-0.5 flex-shrink-0"
+        aria-label="Change test status"
+        title="Change status"
+        className="-ml-2 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-800/70 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:ring-offset-2 focus:ring-offset-gray-950"
       >
         {STATUS_ICON[test.status]}
       </button>
