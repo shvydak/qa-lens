@@ -1,4 +1,4 @@
-import type { Test } from '../../types/index.ts'
+import type {Test} from '../../types/index.ts'
 
 const STATUS_CYCLE: Record<Test['status'], Test['status']> = {
   not_tested: 'pass',
@@ -13,7 +13,7 @@ const PRIORITY_STYLES = {
   low: 'text-gray-500 bg-gray-800',
 }
 
-const PRIORITY_LABELS = { high: 'high', medium: 'med', low: 'low' }
+const PRIORITY_LABELS = {high: 'high', medium: 'med', low: 'low'}
 
 const STATUS_ICON: Record<Test['status'], React.ReactNode> = {
   not_tested: (
@@ -22,14 +22,25 @@ const STATUS_ICON: Record<Test['status'], React.ReactNode> = {
   pass: (
     <span className="w-5 h-5 rounded-md bg-emerald-500/20 border-2 border-emerald-500 flex-shrink-0 flex items-center justify-center">
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M1.5 5l2.5 2.5L8.5 2" stroke="#10b981" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M1.5 5l2.5 2.5L8.5 2"
+          stroke="#10b981"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </span>
   ),
   fail: (
     <span className="w-5 h-5 rounded-md bg-red-500/20 border-2 border-red-500 flex-shrink-0 flex items-center justify-center">
       <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-        <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="#f87171" strokeWidth="1.6" strokeLinecap="round" />
+        <path
+          d="M1.5 1.5l6 6M7.5 1.5l-6 6"
+          stroke="#f87171"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
       </svg>
     </span>
   ),
@@ -65,14 +76,14 @@ export default function TestItem({
         onClick={() => onStatusChange(STATUS_CYCLE[test.status])}
         aria-label="Change test status"
         title="Change status"
-        className="-ml-2 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-800/70 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:ring-offset-2 focus:ring-offset-gray-950"
-      >
+        className="-ml-2 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-800/70 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:ring-offset-2 focus:ring-offset-gray-950">
         {STATUS_ICON[test.status]}
       </button>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-medium ${PRIORITY_STYLES[test.priority]}`}>
+          <span
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-medium ${PRIORITY_STYLES[test.priority]}`}>
             {PRIORITY_LABELS[test.priority]}
           </span>
           {test.area && (
@@ -80,21 +91,22 @@ export default function TestItem({
               {test.area}
             </span>
           )}
-          {test.source === 'manual' && (
-            <span className="text-xs text-gray-700">manual</span>
-          )}
+          {test.source === 'manual' && <span className="text-xs text-gray-700">manual</span>}
         </div>
-        <p className={`text-sm leading-snug ${STATUS_TEXT[test.status]}`}>
-          {test.description}
-        </p>
+        <p className={`text-sm leading-snug ${STATUS_TEXT[test.status]}`}>{test.description}</p>
       </div>
 
       <button
         onClick={onDelete}
-        className="flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-1 text-gray-700 hover:text-red-400 hover:bg-red-400/10 rounded transition-all"
-      >
+        className="flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-1 text-gray-700 hover:text-red-400 hover:bg-red-400/10 rounded transition-all">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M1.5 3h8M4.5 3V1.5h2V3M3.5 4v5.5h4V4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M1.5 3h8M4.5 3V1.5h2V3M3.5 4v5.5h4V4"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
     </div>

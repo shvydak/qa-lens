@@ -1,7 +1,7 @@
-import { getDb } from '../db/index.js'
-import { repoFromRow } from '../db/mappers.js'
+import {getDb} from '../db/index.js'
+import {repoFromRow} from '../db/mappers.js'
 import * as GitService from './GitService.js'
-import { config } from '../config.js'
+import {config} from '../config.js'
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 
@@ -27,7 +27,9 @@ async function fetchAll(): Promise<void> {
     repos.map(async (repo) => {
       try {
         await GitService.fetchOrigin(repo.localPath, repo.branch)
-        db.prepare('UPDATE repositories SET last_fetched_at = datetime(\'now\') WHERE id = ?').run(repo.id)
+        db.prepare("UPDATE repositories SET last_fetched_at = datetime('now') WHERE id = ?").run(
+          repo.id
+        )
       } catch (err) {
         console.error(`[PollingService] fetch failed for ${repo.localPath}:`, err)
       }

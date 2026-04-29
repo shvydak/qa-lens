@@ -11,11 +11,17 @@ npm install
 # Start both backend and frontend in dev mode
 npm run dev
 
-# Type-check backend only
-npx tsc -p packages/backend/tsconfig.json --noEmit
+# Run tests (backend)
+npm test
 
-# Type-check frontend only
-npx tsc -p packages/frontend/tsconfig.json --noEmit
+# Type-check all packages
+npm run type-check
+
+# Lint all packages
+npm run lint
+
+# Format all files
+npm run format
 
 # Build for production
 npm run build
@@ -24,7 +30,31 @@ npm run build
 npm start
 ```
 
-There are currently no repo-level test or lint scripts.
+**Git hooks (husky):** pre-commit runs format + lint + type-check; pre-push also runs tests.
+Set `SKIP_PRECOMMIT=1` or `SKIP_PREPUSH=1` to bypass. Set `SKIP_TESTS=1` to skip tests on push.
+
+## Testing
+
+Backend tests: **vitest** + real in-memory SQLite (no DB mocks — real `better-sqlite3`).
+Test files: `packages/backend/src/__tests__/`
+
+**Helpers** (`src/__tests__/helpers/`):
+
+- `createTestDb()` — fresh in-memory DB with schema applied
+- `seedProject / seedRepo / seedTestSet` — fixture insertion
+- `createTestApp()` — Express app without server/polling, for supertest route tests
+
+**Pattern for mocking `getDb`** in service/route tests:
+
+```ts
+let testDb: Database.Database
+vi.mock('../../db/index.js', () => ({getDb: () => testDb}))
+beforeEach(() => {
+  testDb = createTestDb()
+})
+```
+
+Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
@@ -43,13 +73,14 @@ npm workspaces monorepo with two packages:
 **Request flow:** Express router → route handler (inline DB queries via `getDb()`) → service calls for business logic.
 
 **Services:**
+
 - `GitService.ts` — all git operations via `execFile` (never shell string interpolation). Uses `origin/<branch>` for remote HEAD, falls back to local HEAD.
 - `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Response is always parsed as JSON matching `AIAnalysisOutput`.
 - `AnalysisService.ts` — orchestrates the full analysis cycle: gather diffs from all repos in parallel → call AI → persist `TestSet` + `Test` rows in a single transaction. Tracks in-flight jobs in a `Map<projectId, job>` (in-memory, resets on restart). `markTestSetPassed()` updates `last_analyzed_commit_hash` for every repo in the test set's `commit_ranges` in a single transaction.
 - `PollingService.ts` — runs `git fetch` for every repo every 60s using `Promise.allSettled` (one failure doesn't block others).
 - `prompts/analysis.ts` — the AI prompt template. Edit this to tune analysis quality without touching service logic.
 
-**DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings.
+**DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings. `repositories` has `UNIQUE(project_id, local_path)` — use distinct `localPath` per repo when seeding tests.
 
 **DB row mapping:** better-sqlite3 returns raw schema keys (`snake_case`); map rows to camelCase domain/API objects (e.g. `repoFromRow`) before using `Repository` types or service logic.
 
@@ -87,14 +118,14 @@ npm workspaces monorepo with two packages:
 
 Key variables:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PORT` | `3001` | Backend port |
-| `DB_PATH` | `packages/qa-lens.db` | SQLite file location |
-| `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin for the backend |
-| `VITE_API_URL` | `http://localhost:3001` | Frontend API base URL |
-| `AI_PROVIDERS` | `claude,gemini,anthropic` | Provider order for waterfall |
-| `ANTHROPIC_API_KEY` | — | Required only if `anthropic` provider is used |
+| Variable            | Default                   | Purpose                                       |
+| ------------------- | ------------------------- | --------------------------------------------- |
+| `PORT`              | `3001`                    | Backend port                                  |
+| `DB_PATH`           | `packages/qa-lens.db`     | SQLite file location                          |
+| `CLIENT_ORIGIN`     | `http://localhost:5173`   | Allowed CORS origin for the backend           |
+| `VITE_API_URL`      | `http://localhost:3001`   | Frontend API base URL                         |
+| `AI_PROVIDERS`      | `claude,gemini,anthropic` | Provider order for waterfall                  |
+| `ANTHROPIC_API_KEY` | —                         | Required only if `anthropic` provider is used |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 

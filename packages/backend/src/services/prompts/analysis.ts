@@ -1,4 +1,4 @@
-import type { DiffResult } from '../../types/index.js'
+import type {DiffResult} from '../../types/index.js'
 
 interface PromptInput {
   projectName: string

@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3'
-import { readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
-import { config } from '../config.js'
+import {readFileSync} from 'fs'
+import {fileURLToPath} from 'url'
+import {dirname, join} from 'path'
+import {config} from '../config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 

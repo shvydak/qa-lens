@@ -21,7 +21,7 @@ export interface TestSet {
   projectId: string
   name: string
   status: 'active' | 'passed' | 'failed'
-  commitRanges: Record<string, { from: string | null; to: string }>
+  commitRanges: Record<string, {from: string | null; to: string}>
   aiSummary: string | null
   regressions: string[]
   crossImpacts: string[]
@@ -62,7 +62,7 @@ export interface DiffResult {
 
 export interface AIAnalysisOutput {
   summary: string
-  tests: Array<{ title: string; priority: 'high' | 'medium' | 'low'; area: string }>
+  tests: Array<{title: string; priority: 'high' | 'medium' | 'low'; area: string}>
   regressions: string[]
   cross_repo_impacts: string[]
 }

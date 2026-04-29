@@ -1,21 +1,21 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import type { CommitInfo, DiffResult } from '../types/index.js'
-import { config } from '../config.js'
+import {execFile} from 'child_process'
+import {promisify} from 'util'
+import type {CommitInfo, DiffResult} from '../types/index.js'
+import {config} from '../config.js'
 
 const execFileAsync = promisify(execFile)
 
 async function git(args: string[], cwd: string, timeout = 30_000): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd, timeout, maxBuffer: 20 * 1024 * 1024 })
+  const {stdout} = await execFileAsync('git', args, {cwd, timeout, maxBuffer: 20 * 1024 * 1024})
   return stdout.trim()
 }
 
-export async function validateRepo(localPath: string): Promise<{ valid: boolean; error?: string }> {
+export async function validateRepo(localPath: string): Promise<{valid: boolean; error?: string}> {
   try {
     await git(['rev-parse', '--git-dir'], localPath)
-    return { valid: true }
+    return {valid: true}
   } catch {
-    return { valid: false, error: 'Not a valid git repository' }
+    return {valid: false, error: 'Not a valid git repository'}
   }
 }
 
@@ -53,7 +53,7 @@ export async function getCommitsSince(
     .filter(Boolean)
     .map((line) => {
       const [hash, shortHash, author, date, ...msgParts] = line.split('|')
-      return { hash, shortHash, author, date, message: msgParts.join('|') }
+      return {hash, shortHash, author, date, message: msgParts.join('|')}
     })
 }
 
@@ -81,5 +81,5 @@ export async function getDiff(
 
   const commits = await getCommitsSince(localPath, branch, fromHash)
 
-  return { repoId, repoPath: localPath, branch, commits, diff, filesChanged, stats, fromHash, toHash }
+  return {repoId, repoPath: localPath, branch, commits, diff, filesChanged, stats, fromHash, toHash}
 }

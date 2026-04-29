@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+# Set SKIP_PRECOMMIT=1 to bypass (e.g., CI or emergency)
+[ "$SKIP_PRECOMMIT" = "1" ] && echo 'Skipping pre-commit via SKIP_PRECOMMIT' && exit 0
+
+cd -- "$(git rev-parse --show-toplevel)" || exit 1
+
+echo 'Running format...'
+npm run format || exit 1
+
+echo 'Running lint...'
+npm run lint || exit 1
+
+echo 'Running type-check...'
+npm run type-check || exit 1

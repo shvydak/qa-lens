@@ -1,4 +1,4 @@
-import type { Repository } from '../types/index.js'
+import type {Repository} from '../types/index.js'
 
 export function repoFromRow(row: unknown): Repository {
   const r = row as Record<string, unknown>

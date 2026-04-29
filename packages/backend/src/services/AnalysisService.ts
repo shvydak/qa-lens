@@ -1,12 +1,14 @@
-import { getDb } from '../db/index.js'
-import { repoFromRow } from '../db/mappers.js'
+import {getDb} from '../db/index.js'
+import {repoFromRow} from '../db/mappers.js'
 import * as GitService from './GitService.js'
 import * as AIService from './AIService.js'
-import type { AnalysisJob, Test } from '../types/index.js'
-import { ulid } from '../utils/ulid.js'
+import type {AnalysisJob} from '../types/index.js'
+import {ulid} from '../utils/ulid.js'
 
 export class NoNewCommitsError extends Error {
-  constructor() { super('No new commits to analyze') }
+  constructor() {
+    super('No new commits to analyze')
+  }
 }
 
 export class ActiveTestSetExistsError extends Error {
@@ -21,7 +23,7 @@ export function getRunningJob(projectId: string): AnalysisJob | null {
   return runningJobs.get(projectId) ?? null
 }
 
-export async function run(job: AnalysisJob): Promise<{ testSetId: string }> {
+export async function run(job: AnalysisJob): Promise<{testSetId: string}> {
   if (runningJobs.has(job.projectId)) {
     throw new Error('Analysis already running for this project')
   }
@@ -35,22 +37,23 @@ export async function run(job: AnalysisJob): Promise<{ testSetId: string }> {
   }
 }
 
-async function _run(job: AnalysisJob): Promise<{ testSetId: string }> {
+async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   const db = getDb()
 
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(job.projectId) as
-    | { id: string; name: string; description: string }
+    | {id: string; name: string; description: string}
     | undefined
 
   if (!project) throw new Error('Project not found')
 
-  const repoRows = (
+  const repoRows =
     job.repoIds.length > 0
       ? db
-          .prepare(`SELECT * FROM repositories WHERE id IN (${job.repoIds.map(() => '?').join(',')})`)
+          .prepare(
+            `SELECT * FROM repositories WHERE id IN (${job.repoIds.map(() => '?').join(',')})`
+          )
           .all(...job.repoIds)
       : db.prepare('SELECT * FROM repositories WHERE project_id = ?').all(job.projectId)
-  )
   const repos = repoRows.map(repoFromRow)
 
   if (repos.length === 0) throw new Error('No repositories configured for this project')
@@ -58,21 +61,27 @@ async function _run(job: AnalysisJob): Promise<{ testSetId: string }> {
   const diffs = await Promise.all(
     repos.map(async (repo) => {
       const headHash = await GitService.getHeadHash(repo.localPath, repo.branch)
-      return GitService.getDiff(repo.id, repo.localPath, repo.branch, repo.lastAnalyzedCommitHash, headHash)
+      return GitService.getDiff(
+        repo.id,
+        repo.localPath,
+        repo.branch,
+        repo.lastAnalyzedCommitHash,
+        headHash
+      )
     })
   )
 
   const hasChanges = diffs.some((d) => d.commits.length > 0 || d.filesChanged.length > 0)
   if (!hasChanges) throw new NoNewCommitsError()
 
-  const commitRanges: Record<string, { from: string | null; to: string }> = {}
+  const commitRanges: Record<string, {from: string | null; to: string}> = {}
   for (const diff of diffs) {
-    commitRanges[diff.repoId] = { from: diff.fromHash, to: diff.toHash }
+    commitRanges[diff.repoId] = {from: diff.fromHash, to: diff.toHash}
   }
 
   const activeTestSets = db
     .prepare("SELECT id, commit_ranges FROM test_sets WHERE project_id = ? AND status = 'active'")
-    .all(job.projectId) as Array<{ id: string; commit_ranges: string }>
+    .all(job.projectId) as Array<{id: string; commit_ranges: string}>
 
   const duplicate = activeTestSets.find((testSet) =>
     sameCommitRanges(JSON.parse(testSet.commit_ranges), commitRanges)
@@ -87,17 +96,20 @@ async function _run(job: AnalysisJob): Promise<{ testSetId: string }> {
 
   const allCommitHashes = diffs.flatMap((d) => d.commits.map((c) => c.shortHash))
   const dateStr = new Date().toISOString().slice(0, 10)
-  const name = allCommitHashes.length > 0
-    ? `${allCommitHashes[allCommitHashes.length - 1]}..${allCommitHashes[0]} · ${dateStr}`
-    : `Analysis · ${dateStr}`
+  const name =
+    allCommitHashes.length > 0
+      ? `${allCommitHashes[allCommitHashes.length - 1]}..${allCommitHashes[0]} · ${dateStr}`
+      : `Analysis · ${dateStr}`
 
   const testSetId = ulid()
 
   db.transaction(() => {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO test_sets (id, project_id, name, commit_ranges, ai_summary, regressions, cross_impacts)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `
+    ).run(
       testSetId,
       job.projectId,
       name,
@@ -117,12 +129,12 @@ async function _run(job: AnalysisJob): Promise<{ testSetId: string }> {
     })
   })()
 
-  return { testSetId }
+  return {testSetId}
 }
 
 function sameCommitRanges(
-  a: Record<string, { from: string | null; to: string }>,
-  b: Record<string, { from: string | null; to: string }>
+  a: Record<string, {from: string | null; to: string}>,
+  b: Record<string, {from: string | null; to: string}>
 ): boolean {
   const aRepoIds = Object.keys(a).sort()
   const bRepoIds = Object.keys(b).sort()
@@ -138,14 +150,15 @@ export function markTestSetPassed(testSetId: string): void {
   const db = getDb()
 
   const testSet = db.prepare('SELECT commit_ranges FROM test_sets WHERE id = ?').get(testSetId) as
-    | { commit_ranges: string | null }
+    | {commit_ranges: string | null}
     | undefined
 
   if (!testSet) throw new Error('Test set not found')
   if (!testSet.commit_ranges) throw new Error('Test set has no commit ranges')
 
-  const commitRanges: Record<string, { from: string | null; to: string }> =
-    JSON.parse(testSet.commit_ranges)
+  const commitRanges: Record<string, {from: string | null; to: string}> = JSON.parse(
+    testSet.commit_ranges
+  )
 
   db.transaction(() => {
     const updateRepo = db.prepare(
@@ -155,17 +168,19 @@ export function markTestSetPassed(testSetId: string): void {
       updateRepo.run(range.to, repoId)
     }
 
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE test_sets SET status = 'passed', completed_at = datetime('now') WHERE id = ?
-    `).run(testSetId)
+    `
+    ).run(testSetId)
   })()
 }
 
-export function deleteTestSet(testSetId: string, options: { rewind?: boolean } = {}): void {
+export function deleteTestSet(testSetId: string, options: {rewind?: boolean} = {}): void {
   const db = getDb()
 
   const testSet = db.prepare('SELECT * FROM test_sets WHERE id = ?').get(testSetId) as
-    | { project_id: string }
+    | {project_id: string}
     | undefined
 
   if (!testSet) throw new Error('Test set not found')
@@ -180,22 +195,26 @@ export function deleteTestSet(testSetId: string, options: { rewind?: boolean } =
 }
 
 function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId: string): void {
-  const repos = db.prepare('SELECT id FROM repositories WHERE project_id = ?').all(projectId) as Array<{
+  const repos = db
+    .prepare('SELECT id FROM repositories WHERE project_id = ?')
+    .all(projectId) as Array<{
     id: string
   }>
   const passedTestSets = db
-    .prepare(`
+    .prepare(
+      `
       SELECT commit_ranges
       FROM test_sets
       WHERE project_id = ? AND status = 'passed'
       ORDER BY created_at DESC, rowid DESC
-    `)
-    .all(projectId) as Array<{ commit_ranges: string }>
+    `
+    )
+    .all(projectId) as Array<{commit_ranges: string}>
 
   const latestAnalyzedHashByRepo = new Map<string, string | null>()
 
   for (const testSet of passedTestSets) {
-    const commitRanges = JSON.parse(testSet.commit_ranges) as Record<string, { to: string }>
+    const commitRanges = JSON.parse(testSet.commit_ranges) as Record<string, {to: string}>
 
     for (const repo of repos) {
       if (!latestAnalyzedHashByRepo.has(repo.id) && commitRanges[repo.id]) {
@@ -204,7 +223,9 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
     }
   }
 
-  const updateRepo = db.prepare('UPDATE repositories SET last_analyzed_commit_hash = ? WHERE id = ?')
+  const updateRepo = db.prepare(
+    'UPDATE repositories SET last_analyzed_commit_hash = ? WHERE id = ?'
+  )
   for (const repo of repos) {
     updateRepo.run(latestAnalyzedHashByRepo.get(repo.id) ?? null, repo.id)
   }

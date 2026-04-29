@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import {BrowserRouter, Routes, Route} from 'react-router-dom'
 import AppShell from './components/layout/AppShell.tsx'
 import ProjectsPage from './pages/ProjectsPage.tsx'
 import ProjectDetailPage from './pages/ProjectDetailPage.tsx'

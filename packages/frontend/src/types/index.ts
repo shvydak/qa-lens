@@ -21,7 +21,7 @@ export interface TestSet {
   projectId: string
   name: string
   status: 'active' | 'passed' | 'failed'
-  commitRanges: Record<string, { from: string | null; to: string }>
+  commitRanges: Record<string, {from: string | null; to: string}>
   aiSummary: string | null
   regressions: string[]
   crossImpacts: string[]

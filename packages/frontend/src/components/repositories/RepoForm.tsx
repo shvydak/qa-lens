@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { apiFetch } from '../../api/client.ts'
-import type { Repository } from '../../types/index.ts'
+import {useState} from 'react'
+import {apiFetch} from '../../api/client.ts'
+import type {Repository} from '../../types/index.ts'
 
 export default function RepoForm({
   projectId,
@@ -21,7 +21,7 @@ export default function RepoForm({
   const pickFolder = async () => {
     setPicking(true)
     try {
-      const result = await apiFetch<{ path: string | null }>('GET', '/api/utils/pick-folder')
+      const result = await apiFetch<{path: string | null}>('GET', '/api/utils/pick-folder')
       if (result.path) setLocalPath(result.path)
     } catch {
       // ignore
@@ -54,9 +54,16 @@ export default function RepoForm({
       <div className="w-full max-w-md bg-gray-900 border border-gray-700/50 rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-gray-800/60">
           <h2 className="font-semibold text-gray-100">Add Repository</h2>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-300 transition-colors">
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-500 hover:text-gray-300 transition-colors">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <path
+                d="M2 2l12 12M14 2L2 14"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
         </div>
@@ -77,15 +84,31 @@ export default function RepoForm({
                 onClick={pickFolder}
                 disabled={picking}
                 title="Browse for folder"
-                className="flex-shrink-0 flex items-center justify-center w-10 h-10 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700/50 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
-              >
+                className="flex-shrink-0 flex items-center justify-center w-10 h-10 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700/50 rounded-lg text-gray-400 hover:text-gray-200 transition-colors">
                 {picking ? (
-                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="8 8" />
+                  <svg
+                    className="animate-spin"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none">
+                    <circle
+                      cx="7"
+                      cy="7"
+                      r="5.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeDasharray="8 8"
+                    />
                   </svg>
                 ) : (
                   <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-                    <path d="M1.5 4.5A1 1 0 012.5 3.5h3l1.5 1.5H12.5a1 1 0 011 1v5a1 1 0 01-1 1h-10a1 1 0 01-1-1v-6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                    <path
+                      d="M1.5 4.5A1 1 0 012.5 3.5h3l1.5 1.5H12.5a1 1 0 011 1v5a1 1 0 01-1 1h-10a1 1 0 01-1-1v-6z"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 )}
               </button>
@@ -113,21 +136,21 @@ export default function RepoForm({
             />
           </div>
 
-          {error && <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>
+          )}
 
           <div className="flex gap-3 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
-            >
+              className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors">
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || !localPath.trim()}
-              className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-            >
+              className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
               {loading ? 'Adding...' : 'Add'}
             </button>
           </div>

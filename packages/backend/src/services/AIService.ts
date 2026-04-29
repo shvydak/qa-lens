@@ -1,8 +1,8 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import { config } from '../config.js'
-import { buildAnalysisPrompt } from './prompts/analysis.js'
-import type { DiffResult, AIAnalysisOutput } from '../types/index.js'
+import {execFile} from 'child_process'
+import {promisify} from 'util'
+import {config} from '../config.js'
+import {buildAnalysisPrompt} from './prompts/analysis.js'
+import type {DiffResult, AIAnalysisOutput} from '../types/index.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -36,14 +36,18 @@ function parseAIJson(text: string): AIAnalysisOutput {
   return {
     summary: String(parsed.summary || ''),
     tests: Array.isArray(parsed.tests)
-      ? parsed.tests.map((t: { title?: string; priority?: string; area?: string }) => ({
+      ? parsed.tests.map((t: {title?: string; priority?: string; area?: string}) => ({
           title: String(t.title || ''),
-          priority: ['high', 'medium', 'low'].includes(t.priority ?? '') ? (t.priority as 'high' | 'medium' | 'low') : 'medium',
+          priority: ['high', 'medium', 'low'].includes(t.priority ?? '')
+            ? (t.priority as 'high' | 'medium' | 'low')
+            : 'medium',
           area: String(t.area || 'General'),
         }))
       : [],
     regressions: Array.isArray(parsed.regressions) ? parsed.regressions.map(String) : [],
-    cross_repo_impacts: Array.isArray(parsed.cross_repo_impacts) ? parsed.cross_repo_impacts.map(String) : [],
+    cross_repo_impacts: Array.isArray(parsed.cross_repo_impacts)
+      ? parsed.cross_repo_impacts.map(String)
+      : [],
   }
 }
 
@@ -51,10 +55,10 @@ async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnal
   if (!(await isCommandAvailable('claude'))) throw new Error('claude CLI not found')
 
   const addDirArgs = repoPaths.flatMap((p) => ['--add-dir', p])
-  const { stdout } = await execFileAsync(
+  const {stdout} = await execFileAsync(
     'claude',
     ['-p', prompt, ...addDirArgs, '--output-format', 'json'],
-    { timeout: 180_000, maxBuffer: 10 * 1024 * 1024 }
+    {timeout: 180_000, maxBuffer: 10 * 1024 * 1024}
   )
 
   const wrapper = JSON.parse(stdout.trim())
@@ -65,7 +69,7 @@ async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnal
 async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
   if (!(await isCommandAvailable('gemini'))) throw new Error('gemini CLI not found')
 
-  const { stdout } = await execFileAsync('gemini', ['-p', prompt, '--output-format', 'json'], {
+  const {stdout} = await execFileAsync('gemini', ['-p', prompt, '--output-format', 'json'], {
     timeout: 120_000,
     maxBuffer: 10 * 1024 * 1024,
   })
@@ -92,13 +96,13 @@ async function runAnthropicApi(prompt: string): Promise<AIAnalysisOutput> {
     body: JSON.stringify({
       model: 'claude-sonnet-4-5',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{role: 'user', content: prompt}],
     }),
   })
 
   if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`)
 
-  const data = (await response.json()) as { content: Array<{ type: string; text: string }> }
+  const data = (await response.json()) as {content: Array<{type: string; text: string}>}
   const text = data.content.find((b) => b.type === 'text')?.text || ''
   return parseAIJson(text)
 }

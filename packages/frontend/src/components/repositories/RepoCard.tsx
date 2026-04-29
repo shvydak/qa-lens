@@ -1,4 +1,4 @@
-import type { Repository } from '../../types/index.ts'
+import type {Repository} from '../../types/index.ts'
 
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'never'
@@ -34,7 +34,12 @@ export default function RepoCard({
           <circle cx="7" cy="2.5" r="1.5" stroke="#6b7280" strokeWidth="1.2" />
           <circle cx="2.5" cy="11.5" r="1.5" stroke="#6b7280" strokeWidth="1.2" />
           <circle cx="11.5" cy="11.5" r="1.5" stroke="#6b7280" strokeWidth="1.2" />
-          <path d="M7 4v3.5M7 7.5l-3.5 2.5M7 7.5l3.5 2.5" stroke="#6b7280" strokeWidth="1.2" strokeLinecap="round" />
+          <path
+            d="M7 4v3.5M7 7.5l-3.5 2.5M7 7.5l3.5 2.5"
+            stroke="#6b7280"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
         </svg>
       </div>
 
@@ -66,20 +71,35 @@ export default function RepoCard({
         <button
           onClick={onFetch}
           title="Fetch"
-          className="p-1.5 text-gray-500 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all"
-        >
+          className="p-1.5 text-gray-500 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <path d="M6.5 1.5A5 5 0 1 1 2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            <path d="M1 6.5V9.5H4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M6.5 1.5A5 5 0 1 1 2 9"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+            <path
+              d="M1 6.5V9.5H4"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
         <button
           onClick={onDelete}
           title="Delete"
-          className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
-        >
+          className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1.5 3h9M5 3V1.5h2V3M4.5 5v4.5M7.5 5v4.5M2 3l.5 7.5h7L10 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M1.5 3h9M5 3V1.5h2V3M4.5 5v4.5M7.5 5v4.5M2 3l.5 7.5h7L10 3"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>
