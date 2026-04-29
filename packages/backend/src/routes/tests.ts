@@ -31,8 +31,8 @@ testsRouter.post('/', (req, res) => {
 
   const id = ulid()
   db.prepare(
-    "INSERT INTO tests (id, test_set_id, description, priority, area, source, sort_order) VALUES (?, ?, ?, ?, ?, 'manual', ?)"
-  ).run(id, testSetId, description.trim(), priority, area ?? null, maxOrder + 1)
+    "INSERT INTO tests (id, test_set_id, description, title, priority, area, source, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)"
+  ).run(id, testSetId, description.trim(), description.trim(), priority, area ?? null, maxOrder + 1)
 
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(id)
   return res.status(201).json({data: toDto(test)})
@@ -74,10 +74,27 @@ function toDto(row: unknown) {
     id: r.id,
     testSetId: r.test_set_id,
     description: r.description,
+    title: r.title ?? null,
     priority: r.priority,
     area: r.area ?? null,
+    userScenario: r.user_scenario ?? null,
+    preconditions: parseStringArray(r.preconditions),
+    steps: parseStringArray(r.steps),
+    expectedResult: r.expected_result ?? null,
+    risk: r.risk ?? null,
+    technicalContext: r.technical_context ?? null,
     status: r.status,
     source: r.source,
     sortOrder: r.sort_order,
+  }
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+  } catch {
+    return []
   }
 }

@@ -34,7 +34,7 @@ ${r.diff || '(empty)'}
     })
     .join('\n---\n')
 
-  return `You are a senior QA engineer analyzing code changes across multiple repositories.
+  return `You are a senior QA lead creating a manual QA test plan from code changes.
 
 ## Project: ${input.projectName}
 
@@ -46,9 +46,9 @@ ${repoSections}
 
 ## Your Task:
 Analyze all changes across ALL repositories simultaneously. Focus on:
-1. What functionality is affected and needs testing
+1. What user-facing functionality is affected and needs manual testing
 2. Possible regressions (things that worked before and might break)
-3. Cross-repository impacts (e.g., API endpoint changed → check frontend form + mobile screen)
+3. Cross-repository impacts (e.g., backend change → check the related frontend flow)
 4. Integration points between services
 
 You have access to the repository files via the --add-dir tool. Use it to:
@@ -57,23 +57,45 @@ You have access to the repository files via the --add-dir tool. Use it to:
 - Look at related test files to understand expected behavior
 - Trace data flow across services
 
+## Audience:
+The output is for manual QA engineers. They do not read code and may not know technical terms.
+
+Use Simple English:
+- Use short sentences.
+- Use common words.
+- Avoid idioms.
+- Avoid function names, variable names, cache keys, database names, API paths, and framework terms in QA-facing text.
+- If a technical detail is important, put it only in "technical_context".
+- Write tests as steps a QA engineer can run in the product.
+- Do not ask QA to inspect code, logs, database rows, cache internals, or network payloads unless there is no user-facing way to test the risk.
+
 Output ONLY valid JSON matching this exact schema:
 {
-  "summary": "<3-5 sentence overview of what changed and key testing priorities>",
+  "summary": "<3-5 short Simple English sentences about what changed and what QA should test first>",
   "tests": [
     {
-      "title": "<specific actionable test case>",
+      "title": "<short manual QA test title in Simple English>",
       "priority": "high|medium|low",
-      "area": "<feature area, e.g. 'Auth', 'Checkout', 'Mobile API'>"
+      "area": "<product area, e.g. 'Login', 'Checkout', 'Reports'>",
+      "user_scenario": "<one short sentence describing the user workflow>",
+      "preconditions": ["<setup needed before the test, or empty array>"],
+      "steps": ["<manual step 1>", "<manual step 2>", "<manual step 3>"],
+      "expected_result": "<clear pass condition written for manual QA>",
+      "risk": "<what may break for the user if this fails>",
+      "technical_context": "<optional short note for QA leads or developers; use only when useful>"
     }
   ],
-  "regressions": ["<specific regression risk>"],
-  "cross_repo_impacts": ["<specific cross-repo integration concern>"]
+  "regressions": ["<Simple English user-facing regression risk>"],
+  "cross_repo_impacts": ["<Simple English integration concern that QA can validate in the product>"]
 }
 
 Rules:
 - tests array: 5-20 items, sorted by priority (high first)
-- Be specific: "Test POST /api/orders with discount_code field" not "Test orders API"
+- Every test must have 3-8 manual steps.
+- Every test must have a clear expected_result.
+- Prefer user workflows over implementation details.
+- Good: "Create an order with a discount and check the total price."
+- Bad: "Test POST /api/orders with discount_code field."
 - regressions: focus on things that WORKED BEFORE but could break
 - cross_repo_impacts: only include if you found actual shared code/endpoints between repos
 - Output ONLY the JSON object, no markdown, no explanation`

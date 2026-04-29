@@ -36,19 +36,32 @@ function parseAIJson(text: string): AIAnalysisOutput {
   return {
     summary: String(parsed.summary || ''),
     tests: Array.isArray(parsed.tests)
-      ? parsed.tests.map((t: {title?: string; priority?: string; area?: string}) => ({
-          title: String(t.title || ''),
-          priority: ['high', 'medium', 'low'].includes(t.priority ?? '')
-            ? (t.priority as 'high' | 'medium' | 'low')
-            : 'medium',
-          area: String(t.area || 'General'),
-        }))
+      ? parsed.tests.map((t: Record<string, unknown>) => {
+          const priority = String(t.priority || '')
+          return {
+            title: String(t.title || ''),
+            priority: ['high', 'medium', 'low'].includes(priority)
+              ? (priority as 'high' | 'medium' | 'low')
+              : 'medium',
+            area: String(t.area || 'General'),
+            user_scenario: String(t.user_scenario || ''),
+            preconditions: toStringArray(t.preconditions),
+            steps: toStringArray(t.steps),
+            expected_result: String(t.expected_result || ''),
+            risk: String(t.risk || ''),
+            technical_context: t.technical_context ? String(t.technical_context) : undefined,
+          }
+        })
       : [],
     regressions: Array.isArray(parsed.regressions) ? parsed.regressions.map(String) : [],
     cross_repo_impacts: Array.isArray(parsed.cross_repo_impacts)
       ? parsed.cross_repo_impacts.map(String)
       : [],
   }
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : []
 }
 
 async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnalysisOutput> {

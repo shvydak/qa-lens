@@ -33,8 +33,15 @@ export interface Test {
   id: string
   testSetId: string
   description: string
+  title: string | null
   priority: 'high' | 'medium' | 'low'
   area: string | null
+  userScenario: string | null
+  preconditions: string[]
+  steps: string[]
+  expectedResult: string | null
+  risk: string | null
+  technicalContext: string | null
   status: 'not_tested' | 'pass' | 'fail' | 'skip'
   source: 'ai' | 'manual'
   sortOrder: number
@@ -62,7 +69,17 @@ export interface DiffResult {
 
 export interface AIAnalysisOutput {
   summary: string
-  tests: Array<{title: string; priority: 'high' | 'medium' | 'low'; area: string}>
+  tests: Array<{
+    title: string
+    priority: 'high' | 'medium' | 'low'
+    area: string
+    user_scenario: string
+    preconditions: string[]
+    steps: string[]
+    expected_result: string
+    risk: string
+    technical_context?: string
+  }>
   regressions: string[]
   cross_repo_impacts: string[]
 }

@@ -69,8 +69,17 @@ export default function TestItem({
   onStatusChange: (status: Test['status']) => void
   onDelete: () => void
 }) {
+  const title = test.title || test.description
+  const hasStructuredDetails =
+    Boolean(test.userScenario) ||
+    test.preconditions.length > 0 ||
+    test.steps.length > 0 ||
+    Boolean(test.expectedResult) ||
+    Boolean(test.risk) ||
+    Boolean(test.technicalContext)
+
   return (
-    <div className="group flex items-start gap-3 px-4 py-3 rounded-lg hover:bg-gray-900/60 transition-colors">
+    <div className="group flex items-start gap-3 px-4 py-3 rounded-xl border border-transparent hover:border-gray-800/70 hover:bg-gray-900/60 transition-colors">
       <button
         type="button"
         onClick={() => onStatusChange(STATUS_CYCLE[test.status])}
@@ -93,7 +102,83 @@ export default function TestItem({
           )}
           {test.source === 'manual' && <span className="text-xs text-gray-700">manual</span>}
         </div>
-        <p className={`text-sm leading-snug ${STATUS_TEXT[test.status]}`}>{test.description}</p>
+        <p className={`text-sm font-medium leading-snug ${STATUS_TEXT[test.status]}`}>{title}</p>
+
+        {hasStructuredDetails ? (
+          <div className={`mt-2 space-y-3 text-sm ${STATUS_TEXT[test.status]}`}>
+            {test.userScenario && (
+              <p className="leading-relaxed text-gray-400">
+                <span className="text-gray-500">Scenario:</span> {test.userScenario}
+              </p>
+            )}
+
+            {test.preconditions.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                  Before You Start
+                </p>
+                <ul className="space-y-1 text-gray-400">
+                  {test.preconditions.map((item, index) => (
+                    <li key={index} className="flex gap-2">
+                      <span className="text-gray-700">-</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {test.steps.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                  Steps
+                </p>
+                <ol className="space-y-1 text-gray-300">
+                  {test.steps.map((step, index) => (
+                    <li key={index} className="flex gap-2">
+                      <span className="w-5 flex-shrink-0 text-right text-gray-600">
+                        {index + 1}.
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {test.expectedResult && (
+              <div className="rounded-lg border border-emerald-500/10 bg-emerald-500/5 px-3 py-2">
+                <p className="mb-0.5 text-xs font-semibold uppercase tracking-wider text-emerald-400/80">
+                  Expected Result
+                </p>
+                <p className="leading-relaxed text-emerald-100/75">{test.expectedResult}</p>
+              </div>
+            )}
+
+            {test.risk && (
+              <p className="leading-relaxed text-amber-300/75">
+                <span className="text-amber-400/70">Risk:</span> {test.risk}
+              </p>
+            )}
+
+            {test.technicalContext && (
+              <details className="rounded-lg border border-gray-800/70 bg-gray-950/40 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-gray-600 hover:text-gray-500">
+                  Technical Note
+                </summary>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                  {test.technicalContext}
+                </p>
+              </details>
+            )}
+          </div>
+        ) : (
+          test.title && (
+            <p className={`mt-1 text-sm leading-snug ${STATUS_TEXT[test.status]}`}>
+              {test.description}
+            </p>
+          )
+        )}
       </div>
 
       <button

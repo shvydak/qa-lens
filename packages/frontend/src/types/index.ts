@@ -34,8 +34,15 @@ export interface Test {
   id: string
   testSetId: string
   description: string
+  title: string | null
   priority: 'high' | 'medium' | 'low'
   area: string | null
+  userScenario: string | null
+  preconditions: string[]
+  steps: string[]
+  expectedResult: string | null
+  risk: string | null
+  technicalContext: string | null
   status: 'not_tested' | 'pass' | 'fail' | 'skip'
   source: 'ai' | 'manual'
   sortOrder: number

@@ -120,12 +120,40 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
     )
 
     const insertTest = db.prepare(`
-      INSERT INTO tests (id, test_set_id, description, priority, area, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO tests (
+        id,
+        test_set_id,
+        description,
+        title,
+        priority,
+        area,
+        user_scenario,
+        preconditions,
+        steps,
+        expected_result,
+        risk,
+        technical_context,
+        sort_order
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     aiOutput.tests.forEach((t, i) => {
-      insertTest.run(ulid(), testSetId, t.title, t.priority, t.area, i)
+      insertTest.run(
+        ulid(),
+        testSetId,
+        t.title,
+        t.title,
+        t.priority,
+        t.area,
+        t.user_scenario || null,
+        JSON.stringify(t.preconditions),
+        JSON.stringify(t.steps),
+        t.expected_result || null,
+        t.risk || null,
+        t.technical_context || null,
+        i
+      )
     })
   })()
 

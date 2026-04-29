@@ -53,7 +53,18 @@ const fakeDiff = (repoId: string, from: string | null = null, to = 'head-hash'):
 
 const fakeAiOutput = (): AIAnalysisOutput => ({
   summary: 'Some changes were made.',
-  tests: [{title: 'Auth flow works', priority: 'high', area: 'auth'}],
+  tests: [
+    {
+      title: 'Auth flow works',
+      priority: 'high',
+      area: 'auth',
+      user_scenario: 'A user signs in.',
+      preconditions: ['A user account exists.'],
+      steps: ['Open the sign in page.', 'Enter valid user details.', 'Submit the form.'],
+      expected_result: 'The user can see the main app page.',
+      risk: 'Users may not be able to sign in.',
+    },
+  ],
   regressions: [],
   cross_repo_impacts: [],
 })
