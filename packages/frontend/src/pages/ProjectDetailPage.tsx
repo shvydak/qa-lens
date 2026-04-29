@@ -22,6 +22,12 @@ export default function ProjectDetailPage() {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeTestSet = testSets.find((testSet) => testSet.status === 'active')
+  const hasUnanalyzedCommits = repos.some((repo) => (repo.unanalyzedCount ?? 0) > 0)
+  const analysisDisabled = Boolean(activeTestSet) || !hasUnanalyzedCommits
+  const analysisDisabledReason = activeTestSet
+    ? 'Finish or close the active test set before running a new analysis'
+    : 'There are no new commits to analyze'
 
   const loadRepos = useCallback(async () => {
     if (!id) return
@@ -35,11 +41,11 @@ export default function ProjectDetailPage() {
     setTestSets(data)
   }, [id])
 
-  const loadAnalysisStatus = useCallback(async () => {
+  const loadAnalysisStatus = useCallback(async (navigateOnComplete = false) => {
     if (!id) return
     const data = await apiFetch<AnalysisStatus>('GET', `/api/projects/${id}/analyze/status`)
     setAnalysisStatus(data)
-    if (!data.running && data.testSetId) {
+    if (navigateOnComplete && !data.running && data.testSetId) {
       clearInterval(analysisPollRef.current!)
       await loadTestSets()
       navigate(`/test-sets/${data.testSetId}`)
@@ -75,7 +81,7 @@ export default function ProjectDetailPage() {
   }, [id, loadRepos, loadTestSets, loadAnalysisStatus])
 
   const startAnalysis = async () => {
-    if (!id) return
+    if (!id || analysisDisabled) return
     setAnalysisStatus({ running: true, testSetId: null, error: null })
     try {
       await apiFetch('POST', `/api/projects/${id}/analyze`, {})
@@ -83,7 +89,7 @@ export default function ProjectDetailPage() {
       setAnalysisStatus({ running: false, testSetId: null, error: err instanceof Error ? err.message : 'Error' })
       return
     }
-    analysisPollRef.current = setInterval(loadAnalysisStatus, 2_000)
+    analysisPollRef.current = setInterval(() => loadAnalysisStatus(true), 2_000)
   }
 
   const saveDescription = async () => {
@@ -201,7 +207,12 @@ export default function ProjectDetailPage() {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Analysis</h2>
 
-          <AnalysisPanel status={analysisStatus} onAnalyze={startAnalysis} />
+          <AnalysisPanel
+            status={analysisStatus}
+            disabled={analysisDisabled}
+            disabledReason={analysisDisabledReason}
+            onAnalyze={startAnalysis}
+          />
 
           {testSets.length > 0 && (
             <div>

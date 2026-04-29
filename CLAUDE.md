@@ -5,6 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+# Install workspace dependencies
+npm install
+
 # Start both backend and frontend in dev mode
 npm run dev
 
@@ -20,6 +23,8 @@ npm run build
 # Start production backend (after build)
 npm start
 ```
+
+There are currently no repo-level test or lint scripts.
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
@@ -54,6 +59,12 @@ npm workspaces monorepo with two packages:
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives `status: 'passed'`, it must call `markTestSetPassed()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
 
+**Analysis cursor:** `commit_ranges` is per repository (`repoId -> { from, to }`); passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each repo.
+
+**Duplicate analysis guard:** `AnalysisService.run()` must reject an existing `active` test set with the same `commit_ranges` before calling AI, returning `active_test_set_exists:<id>`.
+
+**Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
+
 ### Frontend
 
 **Routing:** Three pages via React Router v6 — `/`, `/projects/:id`, `/test-sets/:id`.
@@ -70,13 +81,17 @@ npm workspaces monorepo with two packages:
 
 ## Environment
 
-Copy `.env.example` to `.env`. Key variables:
+Key variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `3001` | Backend port |
 | `DB_PATH` | `packages/qa-lens.db` | SQLite file location |
+| `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin for the backend |
+| `VITE_API_URL` | `http://localhost:3001` | Frontend API base URL |
 | `AI_PROVIDERS` | `claude,gemini,anthropic` | Provider order for waterfall |
 | `ANTHROPIC_API_KEY` | — | Required only if `anthropic` provider is used |
+
+The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 
 For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI.

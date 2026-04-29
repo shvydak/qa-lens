@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../api/client.ts'
 import type { TestSet, Test } from '../types/index.ts'
 import TestItem from '../components/tests/TestItem.tsx'
@@ -14,10 +14,12 @@ const STATUS_LABELS = { active: 'In progress', passed: 'Passed', failed: 'Failed
 
 export default function TestSetPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [testSet, setTestSet] = useState<TestSet | null>(null)
   const [tests, setTests] = useState<Test[]>([])
   const [loading, setLoading] = useState(true)
   const [marking, setMarking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -52,6 +54,23 @@ export default function TestSetPage() {
       setTestSet(updated)
     } finally {
       setMarking(false)
+    }
+  }
+
+  const deleteTestSet = async (rewind: boolean) => {
+    if (!testSet) return
+
+    const message = rewind
+      ? 'Delete this test set and rewind the analysis point to the latest remaining passed test set?'
+      : 'Delete this test set? This will not change the analysis point.'
+    if (!window.confirm(message)) return
+
+    setDeleting(true)
+    try {
+      await apiFetch('DELETE', `/api/test-sets/${testSet.id}${rewind ? '?rewind=true' : ''}`)
+      navigate(`/projects/${testSet.projectId}`)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -107,6 +126,24 @@ export default function TestSetPage() {
               </span>
             </div>
             <h1 className="text-lg font-mono font-medium text-gray-200 leading-snug">{testSet.name}</h1>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            {testSet.status === 'passed' && (
+              <button
+                onClick={() => deleteTestSet(true)}
+                disabled={deleting}
+                className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-amber-300 text-xs font-medium rounded-lg transition-colors border border-amber-500/20"
+              >
+                Delete & rewind
+              </button>
+            )}
+            <button
+              onClick={() => deleteTestSet(false)}
+              disabled={deleting}
+              className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-xs font-medium rounded-lg transition-colors border border-red-500/20"
+            >
+              Delete
+            </button>
           </div>
         </div>
 

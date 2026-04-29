@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import * as AnalysisService from '../services/AnalysisService.js'
-import { NoNewCommitsError } from '../services/AnalysisService.js'
+import { ActiveTestSetExistsError, NoNewCommitsError } from '../services/AnalysisService.js'
 import { AllProvidersFailedError } from '../services/AIService.js'
 import { ulid } from '../utils/ulid.js'
 
@@ -28,6 +28,7 @@ analysisRouter.post('/', async (req, res) => {
     .catch((err: unknown) => {
       let message = 'Analysis failed'
       if (err instanceof NoNewCommitsError) message = 'no_new_commits'
+      else if (err instanceof ActiveTestSetExistsError) message = `active_test_set_exists:${err.testSetId}`
       else if (err instanceof AllProvidersFailedError) message = `AI providers failed: ${err.errors.join('; ')}`
       else if (err instanceof Error) message = err.message
       results.set(projectId, { error: message })

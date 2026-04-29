@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { getDb } from '../db/index.js'
-import { markTestSetPassed } from '../services/AnalysisService.js'
+import { deleteTestSet, markTestSetPassed } from '../services/AnalysisService.js'
 
 export const testSetsRouter = Router({ mergeParams: true })
 export const testSetActionsRouter = Router({ mergeParams: true })
@@ -54,9 +54,13 @@ testSetActionsRouter.patch('/:testSetId', (req, res) => {
 })
 
 testSetActionsRouter.delete('/:testSetId', (req, res) => {
-  const db = getDb()
-  db.prepare('DELETE FROM test_sets WHERE id = ?').run(req.params.testSetId)
-  res.json({ data: { ok: true } })
+  try {
+    deleteTestSet(req.params.testSetId, { rewind: req.query.rewind === 'true' })
+    return res.json({ data: { ok: true } })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to delete test set'
+    return res.status(message === 'Test set not found' ? 404 : 500).json({ error: message })
+  }
 })
 
 function toDto(row: unknown) {

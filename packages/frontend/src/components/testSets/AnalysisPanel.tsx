@@ -2,12 +2,17 @@ import type { AnalysisStatus } from '../../types/index.ts'
 
 export default function AnalysisPanel({
   status,
+  disabled,
+  disabledReason,
   onAnalyze,
 }: {
   status: AnalysisStatus
+  disabled?: boolean
+  disabledReason?: string
   onAnalyze: () => void
 }) {
   const isNoNewCommits = status.error === 'no_new_commits'
+  const isDuplicateActiveTestSet = status.error?.startsWith('active_test_set_exists:')
 
   return (
     <div className="bg-gray-900 border border-gray-800/50 rounded-xl p-5">
@@ -21,7 +26,7 @@ export default function AnalysisPanel({
         </div>
       ) : (
         <>
-          {status.error && !isNoNewCommits && (
+          {status.error && !isNoNewCommits && !isDuplicateActiveTestSet && (
             <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
               <p className="text-xs font-medium text-red-400 mb-0.5">Analysis failed</p>
               <p className="text-xs text-red-400/70">{status.error}</p>
@@ -37,9 +42,16 @@ export default function AnalysisPanel({
             </div>
           )}
 
+          {isDuplicateActiveTestSet && (
+            <div className="mb-4 px-3 py-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+              <p className="text-xs text-indigo-300">An active test set already covers these commits</p>
+            </div>
+          )}
+
           <button
             onClick={onAnalyze}
-            className="w-full flex items-center justify-center gap-2.5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition-colors"
+            disabled={disabled}
+            className="w-full flex items-center justify-center gap-2.5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg transition-colors"
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <circle cx="7.5" cy="7.5" r="6" stroke="currentColor" strokeWidth="1.3" />
@@ -49,7 +61,7 @@ export default function AnalysisPanel({
             Run Analysis
           </button>
           <p className="text-xs text-gray-600 text-center mt-2">
-            AI will analyze all new commits across all repositories
+            {disabled && disabledReason ? disabledReason : 'AI will analyze all new commits across all repositories'}
           </p>
         </>
       )}
