@@ -1,0 +1,14 @@
+{
+  "name": "qa-lens",
+  "private": true,
+  "workspaces": ["packages/backend", "packages/frontend"],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm run dev -w packages/backend\" \"npm run dev -w packages/frontend\"",
+    "build": "npm run build -w packages/backend && npm run build -w packages/frontend",
+    "start": "npm run start -w packages/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.5.0"
+  }
+}
