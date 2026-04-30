@@ -2,7 +2,7 @@ import {getDb} from '../db/index.js'
 import {repoFromRow} from '../db/mappers.js'
 import * as GitService from './GitService.js'
 import * as AIService from './AIService.js'
-import type {AnalysisJob} from '../types/index.js'
+import type {AIAnalysisOutput, AnalysisJob} from '../types/index.js'
 import {ulid} from '../utils/ulid.js'
 
 export class NoNewCommitsError extends Error {
@@ -11,13 +11,18 @@ export class NoNewCommitsError extends Error {
   }
 }
 
-export class ActiveTestSetExistsError extends Error {
-  constructor(public readonly testSetId: string) {
-    super('Active test set already exists for this commit range')
-  }
-}
-
 const runningJobs = new Map<string, AnalysisJob>()
+
+type CommitRanges = Record<string, {from: string | null; to: string}>
+
+interface ActiveTestSetRow {
+  id: string
+  name: string
+  commit_ranges: string
+  ai_summary: string | null
+  regressions: string | null
+  cross_impacts: string | null
+}
 
 export function getRunningJob(projectId: string): AnalysisJob | null {
   return runningJobs.get(projectId) ?? null
@@ -58,14 +63,30 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
 
   if (repos.length === 0) throw new Error('No repositories configured for this project')
 
+  const activeTestSet = db
+    .prepare(
+      `
+      SELECT id, name, commit_ranges, ai_summary, regressions, cross_impacts
+      FROM test_sets
+      WHERE project_id = ? AND status = 'active'
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+    `
+    )
+    .get(job.projectId) as ActiveTestSetRow | undefined
+  const activeCommitRanges = activeTestSet
+    ? (JSON.parse(activeTestSet.commit_ranges) as CommitRanges)
+    : null
+
   const diffs = await Promise.all(
     repos.map(async (repo) => {
       const headHash = await GitService.getHeadHash(repo.localPath, repo.branch)
+      const fromHash = activeCommitRanges?.[repo.id]?.to ?? repo.lastAnalyzedCommitHash
       return GitService.getDiff(
         repo.id,
         repo.localPath,
         repo.branch,
-        repo.lastAnalyzedCommitHash,
+        fromHash,
         headHash
       )
     })
@@ -74,19 +95,14 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   const hasChanges = diffs.some((d) => d.commits.length > 0 || d.filesChanged.length > 0)
   if (!hasChanges) throw new NoNewCommitsError()
 
-  const commitRanges: Record<string, {from: string | null; to: string}> = {}
+  const commitRanges: CommitRanges = activeCommitRanges ? {...activeCommitRanges} : {}
   for (const diff of diffs) {
-    commitRanges[diff.repoId] = {from: diff.fromHash, to: diff.toHash}
+    const existingRange = commitRanges[diff.repoId]
+    commitRanges[diff.repoId] = {
+      from: existingRange ? existingRange.from : diff.fromHash,
+      to: diff.toHash,
+    }
   }
-
-  const activeTestSets = db
-    .prepare("SELECT id, commit_ranges FROM test_sets WHERE project_id = ? AND status = 'active'")
-    .all(job.projectId) as Array<{id: string; commit_ranges: string}>
-
-  const duplicate = activeTestSets.find((testSet) =>
-    sameCommitRanges(JSON.parse(testSet.commit_ranges), commitRanges)
-  )
-  if (duplicate) throw new ActiveTestSetExistsError(duplicate.id)
 
   const aiOutput = await AIService.analyze({
     projectName: project.name,
@@ -102,6 +118,37 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       : `Analysis · ${dateStr}`
 
   const testSetId = ulid()
+
+  if (activeTestSet) {
+    const nextSortOrder = ((db
+      .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM tests WHERE test_set_id = ?')
+      .get(activeTestSet.id) as {next: number}).next)
+
+    db.transaction(() => {
+      db.prepare(
+        `
+        UPDATE test_sets
+        SET commit_ranges = ?,
+            ai_summary = ?,
+            regressions = ?,
+            cross_impacts = ?
+        WHERE id = ?
+      `
+      ).run(
+        JSON.stringify(commitRanges),
+        appendSummary(activeTestSet.ai_summary, aiOutput.summary),
+        JSON.stringify(mergeStringArrays(parseStringArray(activeTestSet.regressions), aiOutput.regressions)),
+        JSON.stringify(
+          mergeStringArrays(parseStringArray(activeTestSet.cross_impacts), aiOutput.cross_repo_impacts)
+        ),
+        activeTestSet.id
+      )
+
+      insertAiTests(activeTestSet.id, aiOutput.tests, nextSortOrder)
+    })()
+
+    return {testSetId: activeTestSet.id}
+  }
 
   db.transaction(() => {
     db.prepare(
@@ -119,59 +166,75 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       JSON.stringify(aiOutput.cross_repo_impacts)
     )
 
-    const insertTest = db.prepare(`
-      INSERT INTO tests (
-        id,
-        test_set_id,
-        description,
-        title,
-        priority,
-        area,
-        user_scenario,
-        preconditions,
-        steps,
-        expected_result,
-        risk,
-        technical_context,
-        sort_order
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    aiOutput.tests.forEach((t, i) => {
-      insertTest.run(
-        ulid(),
-        testSetId,
-        t.title,
-        t.title,
-        t.priority,
-        t.area,
-        t.user_scenario || null,
-        JSON.stringify(t.preconditions),
-        JSON.stringify(t.steps),
-        t.expected_result || null,
-        t.risk || null,
-        t.technical_context || null,
-        i
-      )
-    })
+    insertAiTests(testSetId, aiOutput.tests)
   })()
 
   return {testSetId}
 }
 
-function sameCommitRanges(
-  a: Record<string, {from: string | null; to: string}>,
-  b: Record<string, {from: string | null; to: string}>
-): boolean {
-  const aRepoIds = Object.keys(a).sort()
-  const bRepoIds = Object.keys(b).sort()
-  if (aRepoIds.length !== bRepoIds.length) return false
+function insertAiTests(
+  testSetId: string,
+  tests: AIAnalysisOutput['tests'],
+  sortOrderOffset = 0
+): void {
+  const db = getDb()
+  const insertTest = db.prepare(`
+    INSERT INTO tests (
+      id,
+      test_set_id,
+      description,
+      title,
+      priority,
+      area,
+      user_scenario,
+      preconditions,
+      steps,
+      expected_result,
+      risk,
+      technical_context,
+      sort_order
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
 
-  return aRepoIds.every((repoId, index) => {
-    if (repoId !== bRepoIds[index]) return false
-    return a[repoId]?.from === b[repoId]?.from && a[repoId]?.to === b[repoId]?.to
+  tests.forEach((t, i) => {
+    insertTest.run(
+      ulid(),
+      testSetId,
+      t.title,
+      t.title,
+      t.priority,
+      t.area,
+      t.user_scenario || null,
+      JSON.stringify(t.preconditions),
+      JSON.stringify(t.steps),
+      t.expected_result || null,
+      t.risk || null,
+      t.technical_context || null,
+      sortOrderOffset + i
+    )
   })
+}
+
+function appendSummary(current: string | null, next: string): string {
+  if (!current?.trim()) return next
+  if (!next.trim()) return current
+  const date = new Date().toISOString().slice(0, 10)
+  return `${current}\n\nUpdate ${date}: ${next}`
+}
+
+function parseStringArray(value: string | null): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function mergeStringArrays(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b].map((item) => item.trim()).filter(Boolean))]
 }
 
 export function markTestSetPassed(testSetId: string): void {

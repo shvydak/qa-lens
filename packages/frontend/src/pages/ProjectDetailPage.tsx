@@ -28,10 +28,12 @@ export default function ProjectDetailPage() {
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeTestSet = testSets.find((testSet) => testSet.status === 'active')
   const hasUnanalyzedCommits = repos.some((repo) => (repo.unanalyzedCount ?? 0) > 0)
-  const analysisDisabled = Boolean(activeTestSet) || !hasUnanalyzedCommits
-  const analysisDisabledReason = activeTestSet
-    ? 'Finish or close the active test set before running a new analysis'
-    : 'There are no new commits to analyze'
+  const analysisDisabled = !activeTestSet && !hasUnanalyzedCommits
+  const analysisDisabledReason = 'There are no new commits to analyze'
+  const analysisActionLabel = activeTestSet ? 'Update Active Test Set' : 'Run Analysis'
+  const analysisHelpText = activeTestSet
+    ? 'AI will append tests for commits added after the active test set was created'
+    : 'AI will analyze all new commits across all repositories'
 
   const loadRepos = useCallback(async () => {
     if (!id) return
@@ -249,6 +251,9 @@ export default function ProjectDetailPage() {
             status={analysisStatus}
             disabled={analysisDisabled}
             disabledReason={analysisDisabledReason}
+            actionLabel={analysisActionLabel}
+            helpText={analysisHelpText}
+            activeMode={Boolean(activeTestSet)}
             onAnalyze={startAnalysis}
           />
 

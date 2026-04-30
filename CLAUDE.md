@@ -96,7 +96,7 @@ npm workspaces monorepo with two packages:
 
 **Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; frontend relative-time code must treat DB timestamps as UTC or store ISO strings with `Z`.
 
-**Duplicate analysis guard:** `AnalysisService.run()` must reject an existing `active` test set with the same `commit_ranges` before calling AI, returning `active_test_set_exists:<id>`.
+**Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.
 
 **Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
 
