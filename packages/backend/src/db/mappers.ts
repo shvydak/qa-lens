@@ -1,5 +1,10 @@
 import type {Repository} from '../types/index.js'
 
+function sqliteUtcToIso(value: string | null): string | null {
+  if (!value) return null
+  return value.includes('T') ? value : `${value.replace(' ', 'T')}Z`
+}
+
 export function repoFromRow(row: unknown): Repository {
   const r = row as Record<string, unknown>
   return {
@@ -8,7 +13,7 @@ export function repoFromRow(row: unknown): Repository {
     localPath: r.local_path as string,
     githubUrl: (r.github_url as string | null) ?? null,
     branch: r.branch as string,
-    lastFetchedAt: (r.last_fetched_at as string | null) ?? null,
+    lastFetchedAt: sqliteUtcToIso((r.last_fetched_at as string | null) ?? null),
     lastAnalyzedCommitHash: (r.last_analyzed_commit_hash as string | null) ?? null,
   }
 }

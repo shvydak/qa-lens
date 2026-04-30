@@ -8,26 +8,45 @@ import type {Repository} from '../types/index.js'
 export const reposRouter = Router({mergeParams: true})
 export const repoActionsRouter = Router({mergeParams: true})
 
+type CommitRanges = Record<string, {from: string | null; to: string}>
+
 reposRouter.get('/', async (req, res) => {
   const {projectId} = req.params as {projectId: string}
   const db = getDb()
   const repos = db
     .prepare('SELECT * FROM repositories WHERE project_id = ? ORDER BY rowid')
     .all(projectId)
+  const activeTestSet = db
+    .prepare(
+      `
+      SELECT commit_ranges
+      FROM test_sets
+      WHERE project_id = ? AND status = 'active'
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+    `
+    )
+    .get(projectId) as {commit_ranges: string} | undefined
+  const activeCommitRanges = activeTestSet
+    ? (JSON.parse(activeTestSet.commit_ranges) as CommitRanges)
+    : null
 
   const enriched = await Promise.all(
     repos.map(async (row) => {
       const repo = repoFromRow(row)
+      const activeRange = activeCommitRanges?.[repo.id]
+      const sinceHash = activeRange?.to ?? repo.lastAnalyzedCommitHash
+      const analysisCursor = activeRange
+        ? 'active'
+        : repo.lastAnalyzedCommitHash
+          ? 'baseline'
+          : 'none'
       let unanalyzedCount = 0
       try {
-        const commits = await GitService.getCommitsSince(
-          repo.localPath,
-          repo.branch,
-          repo.lastAnalyzedCommitHash
-        )
+        const commits = await GitService.getCommitsSince(repo.localPath, repo.branch, sinceHash)
         unanalyzedCount = commits.length
       } catch {}
-      return {...toDto(repo), unanalyzedCount}
+      return {...toDto(repo), unanalyzedCount, analysisCursor}
     })
   )
 

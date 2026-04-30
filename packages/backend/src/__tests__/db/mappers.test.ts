@@ -19,7 +19,7 @@ describe('repoFromRow', () => {
       localPath: '/repos/myapp',
       githubUrl: 'https://github.com/org/myapp',
       branch: 'main',
-      lastFetchedAt: '2024-06-01 12:00:00',
+      lastFetchedAt: '2024-06-01T12:00:00Z',
       lastAnalyzedCommitHash: 'abc1234',
     })
   })

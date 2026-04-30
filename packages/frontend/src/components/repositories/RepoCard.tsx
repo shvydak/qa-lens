@@ -25,6 +25,7 @@ export default function RepoCard({
   onDelete: () => void
   onFetch: () => Promise<void>
 }) {
+  const analysisCursor = repo.analysisCursor ?? (repo.lastAnalyzedCommitHash ? 'baseline' : 'none')
   const hasNew = (repo.unanalyzedCount ?? 0) > 0
 
   return (
@@ -54,7 +55,25 @@ export default function RepoCard({
         </div>
 
         <div className="flex items-center gap-2.5 mt-1.5">
-          {hasNew ? (
+          {analysisCursor === 'none' ? (
+            <span
+              className="text-xs px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full"
+              title="Run the first analysis to create tests for the current repository state">
+              initial analysis needed
+            </span>
+          ) : analysisCursor === 'active' && hasNew ? (
+            <span
+              className="text-xs px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full"
+              title="New commits appeared after the active test set was created">
+              {repo.unanalyzedCount} to add
+            </span>
+          ) : analysisCursor === 'active' ? (
+            <span
+              className="text-xs px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded-full"
+              title="The current commits are already included in the active test set">
+              in active analysis
+            </span>
+          ) : hasNew ? (
             <span className="text-xs px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full">
               {repo.unanalyzedCount} new
             </span>

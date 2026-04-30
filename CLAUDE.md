@@ -56,6 +56,8 @@ beforeEach(() => {
 
 Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
+Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes/repositories.test.ts`.
+
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
 
@@ -92,9 +94,9 @@ npm workspaces monorepo with two packages:
 
 **Analysis cursor:** `commit_ranges` is per repository (`repoId -> { from, to }`); passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each repo.
 
-**Uninitialized analysis cursor:** When `last_analyzed_commit_hash` is null, `GitService.getCommitsSince()` uses `git log -50`, so repo cards show up to `50 new` until the first passed test set advances the cursor.
+**Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 
-**Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; frontend relative-time code must treat DB timestamps as UTC or store ISO strings with `Z`.
+**Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; normalize API timestamps to ISO `Z` in mappers before frontend relative-time parsing.
 
 **Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.
 

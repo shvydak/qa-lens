@@ -14,6 +14,7 @@ export interface Repository {
   lastFetchedAt: string | null
   lastAnalyzedCommitHash: string | null
   unanalyzedCount?: number
+  analysisCursor?: 'active' | 'baseline' | 'none'
 }
 
 export interface TestSet {
