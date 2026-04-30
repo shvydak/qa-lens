@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react'
 import {useParams, useNavigate, Link} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
-import type {Project, Repository, TestSet, AnalysisStatus} from '../types/index.ts'
+import type {Project, Repository, TestSet, AnalysisStatus, RemoteBranch} from '../types/index.ts'
 import RepoCard from '../components/repositories/RepoCard.tsx'
 import RepoForm from '../components/repositories/RepoForm.tsx'
 import AnalysisPanel from '../components/testSets/AnalysisPanel.tsx'
@@ -23,6 +23,10 @@ export default function ProjectDetailPage() {
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
   const [loading, setLoading] = useState(true)
+  const [syncingRepoId, setSyncingRepoId] = useState<string | null>(null)
+  const [untrackedBranchesByRepo, setUntrackedBranchesByRepo] = useState<
+    Record<string, RemoteBranch[]>
+  >({})
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -122,6 +126,43 @@ export default function ProjectDetailPage() {
   const fetchRepo = async (repoId: string) => {
     await apiFetch('POST', `/api/repos/${repoId}/fetch`, {})
     await loadRepos()
+  }
+
+  const changeRepoBranch = async (repoId: string, branchId: string) => {
+    const updated = await apiFetch<Repository>('PATCH', `/api/repos/${repoId}/active-branch`, {
+      branchId,
+    })
+    setRepos((current) => current.map((repo) => (repo.id === repoId ? updated : repo)))
+    await loadRepos()
+  }
+
+  const syncRepoBranches = async (repoId: string) => {
+    setSyncingRepoId(repoId)
+    try {
+      const result = await apiFetch<{repo: Repository; untrackedBranches: RemoteBranch[]}>(
+        'POST',
+        `/api/repos/${repoId}/sync-branches`,
+        {}
+      )
+      setRepos((current) => current.map((repo) => (repo.id === repoId ? result.repo : repo)))
+      setUntrackedBranchesByRepo((current) => ({
+        ...current,
+        [repoId]: result.untrackedBranches,
+      }))
+    } finally {
+      setSyncingRepoId(null)
+    }
+  }
+
+  const trackRepoBranch = async (repoId: string, branchName: string) => {
+    const updated = await apiFetch<Repository>('POST', `/api/repos/${repoId}/branches`, {
+      branchName,
+    })
+    setRepos((current) => current.map((repo) => (repo.id === repoId ? updated : repo)))
+    setUntrackedBranchesByRepo((current) => ({
+      ...current,
+      [repoId]: (current[repoId] ?? []).filter((branch) => branch.name !== branchName),
+    }))
   }
 
   if (loading) {
@@ -224,6 +265,9 @@ export default function ProjectDetailPage() {
           {repos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 bg-gray-900/50 border border-gray-800/50 rounded-xl text-center">
               <p className="text-gray-500 text-sm">No repositories</p>
+              <p className="text-gray-700 text-xs mt-1">
+                Connect GitHub repos and select branches from remote.
+              </p>
               <button
                 onClick={() => setShowRepoForm(true)}
                 className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
@@ -238,6 +282,11 @@ export default function ProjectDetailPage() {
                   repo={repo}
                   onDelete={() => deleteRepo(repo.id)}
                   onFetch={() => fetchRepo(repo.id)}
+                  onBranchChange={(branchId) => changeRepoBranch(repo.id, branchId)}
+                  onSyncBranches={() => syncRepoBranches(repo.id)}
+                  onTrackBranch={(branchName) => trackRepoBranch(repo.id, branchName)}
+                  untrackedBranches={untrackedBranchesByRepo[repo.id]}
+                  syncingBranches={syncingRepoId === repo.id}
                 />
               ))}
             </div>
@@ -278,6 +327,7 @@ export default function ProjectDetailPage() {
           onClose={() => setShowRepoForm(false)}
           onAdd={(repo) => {
             setRepos((r) => [...r, repo])
+            loadRepos()
             setShowRepoForm(false)
           }}
         />

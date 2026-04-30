@@ -8,7 +8,13 @@ import eslintConfigPrettier from 'eslint-config-prettier'
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.tsbuildinfo', 'packages/qa-lens.db'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.tsbuildinfo',
+      'packages/qa-lens.db',
+      'packages/managed-repos/**',
+    ],
   },
   {
     files: ['**/*.{js,mjs,cjs}'],

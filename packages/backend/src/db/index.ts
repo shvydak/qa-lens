@@ -3,6 +3,7 @@ import {readFileSync} from 'fs'
 import {fileURLToPath} from 'url'
 import {dirname, join} from 'path'
 import {config} from '../config.js'
+import {ulid} from '../utils/ulid.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -21,6 +22,8 @@ export function getDb(): Database.Database {
 function runMigrations(db: Database.Database): void {
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8')
   db.exec(schema)
+  ensureColumn(db, 'repositories', 'github_token', 'TEXT')
+  ensureColumn(db, 'repositories', 'source_type', "TEXT NOT NULL DEFAULT 'local_path'")
   ensureColumn(db, 'tests', 'title', 'TEXT')
   ensureColumn(db, 'tests', 'user_scenario', 'TEXT')
   ensureColumn(db, 'tests', 'preconditions', 'TEXT')
@@ -28,6 +31,7 @@ function runMigrations(db: Database.Database): void {
   ensureColumn(db, 'tests', 'expected_result', 'TEXT')
   ensureColumn(db, 'tests', 'risk', 'TEXT')
   ensureColumn(db, 'tests', 'technical_context', 'TEXT')
+  backfillRepositoryBranches(db)
 }
 
 function ensureColumn(
@@ -40,4 +44,40 @@ function ensureColumn(
   if (columns.some((column) => column.name === columnName)) return
 
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`)
+}
+
+function backfillRepositoryBranches(db: Database.Database): void {
+  const repos = db.prepare('SELECT * FROM repositories').all() as Array<{
+    id: string
+    branch: string
+    last_fetched_at: string | null
+    last_analyzed_commit_hash: string | null
+  }>
+  const insertBranch = db.prepare(`
+    INSERT OR IGNORE INTO repository_branches (
+      id,
+      repository_id,
+      name,
+      status,
+      is_active,
+      last_fetched_at,
+      last_analyzed_commit_hash
+    )
+    VALUES (?, ?, ?, 'active', 1, ?, ?)
+  `)
+
+  for (const repo of repos) {
+    const existing = db
+      .prepare('SELECT id FROM repository_branches WHERE repository_id = ? LIMIT 1')
+      .get(repo.id)
+    if (existing) continue
+
+    insertBranch.run(
+      ulid(),
+      repo.id,
+      repo.branch || 'main',
+      repo.last_fetched_at,
+      repo.last_analyzed_commit_hash
+    )
+  }
 }

@@ -1,8 +1,8 @@
 import {getDb} from '../db/index.js'
-import {repoFromRow} from '../db/mappers.js'
+import {repoBranchFromRow, repoFromRow} from '../db/mappers.js'
 import * as GitService from './GitService.js'
 import * as AIService from './AIService.js'
-import type {AIAnalysisOutput, AnalysisJob} from '../types/index.js'
+import type {AIAnalysisOutput, AnalysisJob, Repository, RepositoryBranch} from '../types/index.js'
 import {ulid} from '../utils/ulid.js'
 
 export class NoNewCommitsError extends Error {
@@ -60,8 +60,15 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
           .all(...job.repoIds)
       : db.prepare('SELECT * FROM repositories WHERE project_id = ?').all(job.projectId)
   const repos = repoRows.map(repoFromRow)
+  const repoTargets = repos.map((repo) => ({
+    repo,
+    branch: getActiveBranch(repo),
+  }))
 
   if (repos.length === 0) throw new Error('No repositories configured for this project')
+  if (repoTargets.some((target) => !target.branch)) {
+    throw new Error('Every repository needs an active branch before analysis can run')
+  }
 
   const activeTestSet = db
     .prepare(
@@ -79,10 +86,26 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
     : null
 
   const diffs = await Promise.all(
-    repos.map(async (repo) => {
-      const headHash = await GitService.getHeadHash(repo.localPath, repo.branch)
-      const fromHash = activeCommitRanges?.[repo.id]?.to ?? repo.lastAnalyzedCommitHash
-      return GitService.getDiff(repo.id, repo.localPath, repo.branch, fromHash, headHash)
+    repoTargets.map(async ({repo, branch}) => {
+      const activeBranch = branch!
+      if (repo.sourceType === 'managed_clone') {
+        await GitService.fetchOrigin(repo.localPath, activeBranch.name, repo.githubToken)
+        await GitService.checkoutBranch(repo.localPath, activeBranch.name)
+      }
+      const headHash = await GitService.getHeadHash(repo.localPath, activeBranch.name)
+      const fromHash =
+        activeCommitRanges?.[activeBranch.id]?.to ??
+        activeCommitRanges?.[repo.id]?.to ??
+        activeBranch.lastAnalyzedCommitHash ??
+        repo.lastAnalyzedCommitHash
+      return GitService.getDiff(
+        repo.id,
+        activeBranch.id,
+        repo.localPath,
+        activeBranch.name,
+        fromHash,
+        headHash
+      )
     })
   )
 
@@ -91,8 +114,8 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
 
   const commitRanges: CommitRanges = activeCommitRanges ? {...activeCommitRanges} : {}
   for (const diff of diffs) {
-    const existingRange = commitRanges[diff.repoId]
-    commitRanges[diff.repoId] = {
+    const existingRange = commitRanges[diff.repositoryBranchId]
+    commitRanges[diff.repositoryBranchId] = {
       from: existingRange ? existingRange.from : diff.fromHash,
       to: diff.toHash,
     }
@@ -255,11 +278,28 @@ export function markTestSetPassed(testSetId: string): void {
   )
 
   db.transaction(() => {
-    const updateRepo = db.prepare(
+    const updateBranch = db.prepare(
+      'UPDATE repository_branches SET last_analyzed_commit_hash = ? WHERE id = ?'
+    )
+    const updateRepoForActiveBranch = db.prepare(`
+      UPDATE repositories
+      SET last_analyzed_commit_hash = ?
+      WHERE id = (
+        SELECT repository_id
+        FROM repository_branches
+        WHERE id = ? AND is_active = 1
+      )
+    `)
+    const updateLegacyRepo = db.prepare(
       'UPDATE repositories SET last_analyzed_commit_hash = ? WHERE id = ?'
     )
-    for (const [repoId, range] of Object.entries(commitRanges)) {
-      updateRepo.run(range.to, repoId)
+    for (const [targetId, range] of Object.entries(commitRanges)) {
+      const branchResult = updateBranch.run(range.to, targetId)
+      if (branchResult.changes === 0) {
+        updateLegacyRepo.run(range.to, targetId)
+      } else {
+        updateRepoForActiveBranch.run(range.to, targetId)
+      }
     }
 
     db.prepare(
@@ -289,11 +329,21 @@ export function deleteTestSet(testSetId: string, options: {rewind?: boolean} = {
 }
 
 function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId: string): void {
-  const repos = db
-    .prepare('SELECT id FROM repositories WHERE project_id = ?')
+  const branches = db
+    .prepare(
+      `
+      SELECT rb.id
+      FROM repository_branches rb
+      JOIN repositories r ON r.id = rb.repository_id
+      WHERE r.project_id = ?
+    `
+    )
     .all(projectId) as Array<{
     id: string
   }>
+  const repos = db
+    .prepare('SELECT id FROM repositories WHERE project_id = ?')
+    .all(projectId) as Array<{id: string}>
   const passedTestSets = db
     .prepare(
       `
@@ -305,22 +355,64 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
     )
     .all(projectId) as Array<{commit_ranges: string}>
 
-  const latestAnalyzedHashByRepo = new Map<string, string | null>()
+  const latestAnalyzedHashByBranch = new Map<string, string | null>()
 
   for (const testSet of passedTestSets) {
     const commitRanges = JSON.parse(testSet.commit_ranges) as Record<string, {to: string}>
 
+    for (const branch of branches) {
+      if (!latestAnalyzedHashByBranch.has(branch.id) && commitRanges[branch.id]) {
+        latestAnalyzedHashByBranch.set(branch.id, commitRanges[branch.id].to)
+      }
+    }
+
     for (const repo of repos) {
-      if (!latestAnalyzedHashByRepo.has(repo.id) && commitRanges[repo.id]) {
-        latestAnalyzedHashByRepo.set(repo.id, commitRanges[repo.id].to)
+      const legacyBranch = branches.find((branch) => branch.id === `${repo.id}-branch`)
+      if (
+        legacyBranch &&
+        !latestAnalyzedHashByBranch.has(legacyBranch.id) &&
+        commitRanges[repo.id]
+      ) {
+        latestAnalyzedHashByBranch.set(legacyBranch.id, commitRanges[repo.id].to)
       }
     }
   }
 
-  const updateRepo = db.prepare(
-    'UPDATE repositories SET last_analyzed_commit_hash = ? WHERE id = ?'
+  const updateBranch = db.prepare(
+    'UPDATE repository_branches SET last_analyzed_commit_hash = ? WHERE id = ?'
   )
-  for (const repo of repos) {
-    updateRepo.run(latestAnalyzedHashByRepo.get(repo.id) ?? null, repo.id)
+  const updateRepo = db.prepare(
+    `
+    UPDATE repositories
+    SET last_analyzed_commit_hash = (
+      SELECT last_analyzed_commit_hash
+      FROM repository_branches
+      WHERE repository_id = repositories.id AND is_active = 1
+      LIMIT 1
+    )
+    WHERE project_id = ?
+  `
+  )
+  for (const branch of branches) {
+    updateBranch.run(latestAnalyzedHashByBranch.get(branch.id) ?? null, branch.id)
   }
+  updateRepo.run(projectId)
+}
+
+function getActiveBranch(repo: Repository): RepositoryBranch | null {
+  const db = getDb()
+  const row =
+    db
+      .prepare(
+        `
+        SELECT *
+        FROM repository_branches
+        WHERE repository_id = ? AND is_active = 1
+        LIMIT 1
+      `
+      )
+      .get(repo.id) ??
+    db.prepare('SELECT * FROM repository_branches WHERE repository_id = ? LIMIT 1').get(repo.id)
+
+  return row ? repoBranchFromRow(row) : null
 }

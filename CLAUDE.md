@@ -84,6 +84,10 @@ npm workspaces monorepo with two packages:
 
 **DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings. `repositories` has `UNIQUE(project_id, local_path)` — use distinct `localPath` per repo when seeding tests.
 
+**Managed GitHub repos:** Repositories can be `source_type='managed_clone'`; QA Lens clones GitHub repos into `MANAGED_REPOS_PATH` and must not touch user working directories.
+
+**Repository branches:** `repository_branches` is the analysis target layer; each branch has its own `status`, `is_active`, `last_fetched_at`, and `last_analyzed_commit_hash`.
+
 **DB row mapping:** better-sqlite3 returns raw schema keys (`snake_case`); map rows to camelCase domain/API objects (e.g. `repoFromRow`) before using `Repository` types or service logic.
 
 **IDs:** `src/utils/ulid.ts` — custom time-sortable ID generator, no external dependency.
@@ -92,7 +96,13 @@ npm workspaces monorepo with two packages:
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives `status: 'passed'`, it must call `markTestSetPassed()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
 
-**Analysis cursor:** `commit_ranges` is per repository (`repoId -> { from, to }`); passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each repo.
+**Analysis cursor:** `commit_ranges` is keyed by `repositoryBranchId` for new analyses; keep legacy `repoId` fallback only for old data. Passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each tracked branch.
+
+**Read-only Git:** GitHub operations must remain read-only (`ls-remote`, `clone`, `fetch`, `log`, `diff`, `rev-parse`); never add `push`, `commit`, `merge`, `rebase`, `reset`, or remote delete flows.
+
+**GitHub tokens:** PATs are stored locally for MVP and passed to Git-over-HTTPS via Basic auth (`x-access-token:<token>`); API responses expose only `hasAuthToken`, never the token.
+
+**Branch sync:** `POST /api/repos/:repoId/sync-branches` marks tracked branches `active`/`missing` and returns untracked remote branches; old analysis history must remain even when a remote branch disappears.
 
 **Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 
@@ -120,14 +130,15 @@ npm workspaces monorepo with two packages:
 
 Key variables:
 
-| Variable            | Default                   | Purpose                                       |
-| ------------------- | ------------------------- | --------------------------------------------- |
-| `PORT`              | `3001`                    | Backend port                                  |
-| `DB_PATH`           | `packages/qa-lens.db`     | SQLite file location                          |
-| `CLIENT_ORIGIN`     | `http://localhost:5173`   | Allowed CORS origin for the backend           |
-| `VITE_API_URL`      | `http://localhost:3001`   | Frontend API base URL                         |
-| `AI_PROVIDERS`      | `claude,gemini,anthropic` | Provider order for waterfall                  |
-| `ANTHROPIC_API_KEY` | —                         | Required only if `anthropic` provider is used |
+| Variable             | Default                   | Purpose                                                |
+| -------------------- | ------------------------- | ------------------------------------------------------ |
+| `PORT`               | `3001`                    | Backend port                                           |
+| `DB_PATH`            | `packages/qa-lens.db`     | SQLite file location                                   |
+| `MANAGED_REPOS_PATH` | `packages/managed-repos`  | Internal clone storage for GitHub-managed repositories |
+| `CLIENT_ORIGIN`      | `http://localhost:5173`   | Allowed CORS origin for the backend                    |
+| `VITE_API_URL`       | `http://localhost:3001`   | Frontend API base URL                                  |
+| `AI_PROVIDERS`       | `claude,gemini,anthropic` | Provider order for waterfall                           |
+| `ANTHROPIC_API_KEY`  | —                         | Required only if `anthropic` provider is used          |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 

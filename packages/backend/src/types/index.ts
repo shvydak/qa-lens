@@ -10,11 +10,26 @@ export interface Repository {
   projectId: string
   localPath: string
   githubUrl: string | null
+  githubToken: string | null
+  hasAuthToken?: boolean
+  sourceType: 'local_path' | 'managed_clone'
   branch: string
   lastFetchedAt: string | null
   lastAnalyzedCommitHash: string | null
+  branches?: RepositoryBranch[]
+  activeBranch?: RepositoryBranch | null
   unanalyzedCount?: number
   analysisCursor?: 'active' | 'baseline' | 'none'
+}
+
+export interface RepositoryBranch {
+  id: string
+  repositoryId: string
+  name: string
+  status: 'active' | 'missing' | 'archived'
+  isActive: boolean
+  lastFetchedAt: string | null
+  lastAnalyzedCommitHash: string | null
 }
 
 export interface TestSet {
@@ -23,11 +38,21 @@ export interface TestSet {
   name: string
   status: 'active' | 'passed' | 'failed'
   commitRanges: Record<string, {from: string | null; to: string}>
+  commitTargets?: TestSetCommitTarget[]
   aiSummary: string | null
   regressions: string[]
   crossImpacts: string[]
   createdAt: string
   completedAt: string | null
+}
+
+export interface TestSetCommitTarget {
+  id: string
+  repositoryId: string
+  repositoryPath: string
+  branchName: string
+  from: string | null
+  to: string
 }
 
 export interface Test {
@@ -58,6 +83,7 @@ export interface CommitInfo {
 
 export interface DiffResult {
   repoId: string
+  repositoryBranchId: string
   repoPath: string
   branch: string
   commits: CommitInfo[]

@@ -8,6 +8,8 @@ describe('repoFromRow', () => {
       project_id: 'proj-1',
       local_path: '/repos/myapp',
       github_url: 'https://github.com/org/myapp',
+      github_token: null,
+      source_type: 'local_path',
       branch: 'main',
       last_fetched_at: '2024-06-01 12:00:00',
       last_analyzed_commit_hash: 'abc1234',
@@ -18,6 +20,9 @@ describe('repoFromRow', () => {
       projectId: 'proj-1',
       localPath: '/repos/myapp',
       githubUrl: 'https://github.com/org/myapp',
+      githubToken: null,
+      hasAuthToken: false,
+      sourceType: 'local_path',
       branch: 'main',
       lastFetchedAt: '2024-06-01T12:00:00Z',
       lastAnalyzedCommitHash: 'abc1234',
@@ -30,6 +35,8 @@ describe('repoFromRow', () => {
       project_id: 'proj-1',
       local_path: '/repos/other',
       github_url: null,
+      github_token: null,
+      source_type: 'local_path',
       branch: 'develop',
       last_fetched_at: null,
       last_analyzed_commit_hash: null,
@@ -38,6 +45,8 @@ describe('repoFromRow', () => {
     const result = repoFromRow(row)
 
     expect(result.githubUrl).toBeNull()
+    expect(result.githubToken).toBeNull()
+    expect(result.hasAuthToken).toBe(false)
     expect(result.lastFetchedAt).toBeNull()
     expect(result.lastAnalyzedCommitHash).toBeNull()
   })

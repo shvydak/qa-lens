@@ -67,13 +67,17 @@ testSetActionsRouter.delete('/:testSetId', (req, res) => {
 
 function toDto(row: unknown) {
   const r = row as Record<string, unknown>
+  const commitRanges =
+    typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges
   return {
     id: r.id,
     projectId: r.project_id,
     name: r.name,
     status: r.status,
-    commitRanges:
-      typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges,
+    commitRanges,
+    commitTargets: getCommitTargets(
+      commitRanges as Record<string, {from: string | null; to: string}>
+    ),
     aiSummary: r.ai_summary ?? null,
     regressions:
       typeof r.regressions === 'string'
@@ -86,6 +90,52 @@ function toDto(row: unknown) {
     createdAt: r.created_at,
     completedAt: r.completed_at ?? null,
   }
+}
+
+function getCommitTargets(commitRanges: Record<string, {from: string | null; to: string}>) {
+  const db = getDb()
+  return Object.entries(commitRanges).map(([targetId, range]) => {
+    const branch = db
+      .prepare(
+        `
+        SELECT
+          rb.id,
+          rb.repository_id,
+          rb.name,
+          r.local_path
+        FROM repository_branches rb
+        JOIN repositories r ON r.id = rb.repository_id
+        WHERE rb.id = ?
+      `
+      )
+      .get(targetId) as
+      | {id: string; repository_id: string; name: string; local_path: string}
+      | undefined
+
+    if (branch) {
+      return {
+        id: branch.id,
+        repositoryId: branch.repository_id,
+        repositoryPath: branch.local_path,
+        branchName: branch.name,
+        from: range.from,
+        to: range.to,
+      }
+    }
+
+    const repo = db.prepare('SELECT * FROM repositories WHERE id = ?').get(targetId) as
+      | {id: string; local_path: string; branch: string}
+      | undefined
+
+    return {
+      id: targetId,
+      repositoryId: repo?.id ?? targetId,
+      repositoryPath: repo?.local_path ?? targetId,
+      branchName: repo?.branch ?? 'unknown',
+      from: range.from,
+      to: range.to,
+    }
+  })
 }
 
 function testToDto(row: unknown) {

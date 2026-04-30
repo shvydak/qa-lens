@@ -13,10 +13,24 @@ CREATE TABLE IF NOT EXISTS repositories (
   project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   local_path                TEXT NOT NULL,
   github_url                TEXT,
+  github_token              TEXT,
+  source_type               TEXT NOT NULL DEFAULT 'local_path' CHECK(source_type IN ('local_path','managed_clone')),
   branch                    TEXT NOT NULL DEFAULT 'main',
   last_fetched_at           TEXT,
   last_analyzed_commit_hash TEXT,
   UNIQUE(project_id, local_path)
+);
+
+CREATE TABLE IF NOT EXISTS repository_branches (
+  id                        TEXT PRIMARY KEY,
+  repository_id             TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  name                      TEXT NOT NULL,
+  status                    TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','missing','archived')),
+  is_active                 INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)),
+  last_fetched_at           TEXT,
+  last_analyzed_commit_hash TEXT,
+  created_at                TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(repository_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS test_sets (
@@ -51,6 +65,8 @@ CREATE TABLE IF NOT EXISTS tests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_repos_project ON repositories(project_id);
+CREATE INDEX IF NOT EXISTS idx_repo_branches_repo ON repository_branches(repository_id);
+CREATE INDEX IF NOT EXISTS idx_repo_branches_active ON repository_branches(repository_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_test_sets_project ON test_sets(project_id);
 CREATE INDEX IF NOT EXISTS idx_tests_test_set ON tests(test_set_id);
 CREATE INDEX IF NOT EXISTS idx_tests_status ON tests(test_set_id, status);

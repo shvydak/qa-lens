@@ -32,6 +32,7 @@ import type {AnalysisJob, DiffResult, AIAnalysisOutput} from '../../types/index.
 
 const fakeDiff = (repoId: string, from: string | null = null, to = 'head-hash'): DiffResult => ({
   repoId,
+  repositoryBranchId: `${repoId}-branch`,
   repoPath: '/fake/path',
   branch: 'main',
   commits: [
@@ -234,6 +235,7 @@ describe('run', () => {
     mockGetHeadHash.mockResolvedValue('head-hash')
     mockGetDiff.mockResolvedValue({
       repoId: 'repo-1',
+      repositoryBranchId: 'repo-1-branch',
       repoPath: '/fake/path',
       branch: 'main',
       commits: [],
@@ -254,6 +256,7 @@ describe('run', () => {
     mockGetHeadHash.mockResolvedValue('head-hash')
     mockGetDiff.mockResolvedValue({
       repoId: 'repo-1',
+      repositoryBranchId: 'repo-1-branch',
       repoPath: '/fake/path',
       branch: 'main',
       commits: [],
@@ -267,12 +270,13 @@ describe('run', () => {
     seedTestSet(testDb, projectId, {
       id: 'existing-ts',
       status: 'active',
-      commitRanges: {'repo-1': {from: null, to: 'head-hash'}},
+      commitRanges: {'repo-1-branch': {from: null, to: 'head-hash'}},
     })
 
     await expect(run(makeJob(projectId))).rejects.toThrow(NoNewCommitsError)
     expect(mockGetDiff).toHaveBeenCalledWith(
       'repo-1',
+      'repo-1-branch',
       '/fake/path',
       'main',
       'head-hash',
@@ -296,7 +300,7 @@ describe('run', () => {
       | undefined
     expect(ts).toBeDefined()
     expect(ts!.status).toBe('active')
-    expect(JSON.parse(ts!.commit_ranges)).toMatchObject({'repo-1': {to: 'head-hash'}})
+    expect(JSON.parse(ts!.commit_ranges)).toMatchObject({'repo-1-branch': {to: 'head-hash'}})
 
     const tests = testDb.prepare('SELECT * FROM tests WHERE test_set_id = ?').all(testSetId)
     expect(tests).toHaveLength(1)
@@ -337,13 +341,20 @@ describe('run', () => {
     const activeTestSetId = seedTestSet(testDb, projectId, {
       id: 'active-ts',
       status: 'active',
-      commitRanges: {'repo-1': {from: null, to: 'old-hash'}},
+      commitRanges: {'repo-1-branch': {from: null, to: 'old-hash'}},
     })
 
     const {testSetId} = await run(makeJob(projectId))
     expect(testSetId).toBe(activeTestSetId)
 
-    expect(mockGetDiff).toHaveBeenCalledWith('repo-1', '/fake/path', 'main', 'old-hash', 'new-head')
+    expect(mockGetDiff).toHaveBeenCalledWith(
+      'repo-1',
+      'repo-1-branch',
+      '/fake/path',
+      'main',
+      'old-hash',
+      'new-head'
+    )
 
     const testSets = testDb.prepare('SELECT * FROM test_sets WHERE project_id = ?').all(projectId)
     expect(testSets).toHaveLength(1)
@@ -354,7 +365,7 @@ describe('run', () => {
       commit_ranges: string
     }
     expect(JSON.parse(updated.commit_ranges)).toMatchObject({
-      'repo-1': {from: null, to: 'new-head'},
+      'repo-1-branch': {from: null, to: 'new-head'},
     })
 
     const tests = testDb.prepare('SELECT * FROM tests WHERE test_set_id = ?').all(testSetId)
