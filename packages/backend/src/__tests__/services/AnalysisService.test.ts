@@ -343,18 +343,14 @@ describe('run', () => {
     const {testSetId} = await run(makeJob(projectId))
     expect(testSetId).toBe(activeTestSetId)
 
-    expect(mockGetDiff).toHaveBeenCalledWith(
-      'repo-1',
-      '/fake/path',
-      'main',
-      'old-hash',
-      'new-head'
-    )
+    expect(mockGetDiff).toHaveBeenCalledWith('repo-1', '/fake/path', 'main', 'old-hash', 'new-head')
 
     const testSets = testDb.prepare('SELECT * FROM test_sets WHERE project_id = ?').all(projectId)
     expect(testSets).toHaveLength(1)
 
-    const updated = testDb.prepare('SELECT commit_ranges FROM test_sets WHERE id = ?').get(testSetId) as {
+    const updated = testDb
+      .prepare('SELECT commit_ranges FROM test_sets WHERE id = ?')
+      .get(testSetId) as {
       commit_ranges: string
     }
     expect(JSON.parse(updated.commit_ranges)).toMatchObject({

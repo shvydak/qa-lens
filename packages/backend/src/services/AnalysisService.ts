@@ -82,13 +82,7 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
     repos.map(async (repo) => {
       const headHash = await GitService.getHeadHash(repo.localPath, repo.branch)
       const fromHash = activeCommitRanges?.[repo.id]?.to ?? repo.lastAnalyzedCommitHash
-      return GitService.getDiff(
-        repo.id,
-        repo.localPath,
-        repo.branch,
-        fromHash,
-        headHash
-      )
+      return GitService.getDiff(repo.id, repo.localPath, repo.branch, fromHash, headHash)
     })
   )
 
@@ -120,9 +114,13 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   const testSetId = ulid()
 
   if (activeTestSet) {
-    const nextSortOrder = ((db
-      .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM tests WHERE test_set_id = ?')
-      .get(activeTestSet.id) as {next: number}).next)
+    const nextSortOrder = (
+      db
+        .prepare(
+          'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM tests WHERE test_set_id = ?'
+        )
+        .get(activeTestSet.id) as {next: number}
+    ).next
 
     db.transaction(() => {
       db.prepare(
@@ -137,9 +135,14 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       ).run(
         JSON.stringify(commitRanges),
         appendSummary(activeTestSet.ai_summary, aiOutput.summary),
-        JSON.stringify(mergeStringArrays(parseStringArray(activeTestSet.regressions), aiOutput.regressions)),
         JSON.stringify(
-          mergeStringArrays(parseStringArray(activeTestSet.cross_impacts), aiOutput.cross_repo_impacts)
+          mergeStringArrays(parseStringArray(activeTestSet.regressions), aiOutput.regressions)
+        ),
+        JSON.stringify(
+          mergeStringArrays(
+            parseStringArray(activeTestSet.cross_impacts),
+            aiOutput.cross_repo_impacts
+          )
         ),
         activeTestSet.id
       )
