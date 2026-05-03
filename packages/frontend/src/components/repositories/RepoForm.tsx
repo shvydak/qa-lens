@@ -1,6 +1,6 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import {apiFetch} from '../../api/client.ts'
-import type {Repository} from '../../types/index.ts'
+import type {GitHubCredential, RemoteBranch, Repository} from '../../types/index.ts'
 
 export default function RepoForm({
   projectId,
@@ -11,35 +11,88 @@ export default function RepoForm({
   onClose: () => void
   onAdd: (repo: Repository) => void
 }) {
-  const [localPath, setLocalPath] = useState('')
-  const [branch, setBranch] = useState('main')
   const [githubUrl, setGithubUrl] = useState('')
+  const [githubToken, setGithubToken] = useState('')
+  const [credentialName, setCredentialName] = useState('')
+  const [credentials, setCredentials] = useState<GitHubCredential[]>([])
+  const [githubCredentialId, setGithubCredentialId] = useState('')
+  const [branches, setBranches] = useState<RemoteBranch[]>([])
+  const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
+  const [discovering, setDiscovering] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [picking, setPicking] = useState(false)
   const [error, setError] = useState('')
 
-  const pickFolder = async () => {
-    setPicking(true)
+  useEffect(() => {
+    apiFetch<GitHubCredential[]>('GET', `/api/projects/${projectId}/repos/credentials`)
+      .then(setCredentials)
+      .catch(() => setCredentials([]))
+  }, [projectId])
+
+  const saveCredential = async () => {
+    if (!credentialName.trim() || !githubToken.trim()) return
+    setError('')
     try {
-      const result = await apiFetch<{path: string | null}>('GET', '/api/utils/pick-folder')
-      if (result.path) setLocalPath(result.path)
-    } catch {
-      // ignore
-    } finally {
-      setPicking(false)
+      const credential = await apiFetch<GitHubCredential>(
+        'POST',
+        `/api/projects/${projectId}/repos/credentials`,
+        {name: credentialName.trim(), token: githubToken.trim()}
+      )
+      setCredentials((current) =>
+        [...current, credential].sort((a, b) => a.name.localeCompare(b.name))
+      )
+      setGithubCredentialId(credential.id)
+      setCredentialName('')
+      setGithubToken('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save credential')
     }
+  }
+
+  const discoverBranches = async () => {
+    if (!githubUrl.trim()) return
+    setDiscovering(true)
+    setError('')
+    try {
+      const result = await apiFetch<{branches: RemoteBranch[]}>(
+        'POST',
+        `/api/projects/${projectId}/repos/discover-branches`,
+        {
+          githubUrl: githubUrl.trim(),
+          githubToken: githubToken.trim() || undefined,
+          githubCredentialId: githubCredentialId || undefined,
+        }
+      )
+      setBranches(result.branches)
+      const defaultBranch =
+        result.branches.find((branch) => branch.name === 'staging') ?? result.branches[0]
+      setSelectedBranches(defaultBranch ? new Set([defaultBranch.name]) : new Set())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to discover branches')
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const toggleBranch = (name: string) => {
+    setSelectedBranches((current) => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!localPath.trim()) return
+    if (!githubUrl.trim() || selectedBranches.size === 0) return
     setLoading(true)
     setError('')
     try {
       const repo = await apiFetch<Repository>('POST', `/api/projects/${projectId}/repos`, {
-        localPath: localPath.trim(),
-        branch: branch.trim() || 'main',
-        githubUrl: githubUrl.trim() || undefined,
+        githubUrl: githubUrl.trim(),
+        githubToken: githubToken.trim() || undefined,
+        githubCredentialId: githubCredentialId || undefined,
+        branchNames: Array.from(selectedBranches),
       })
       onAdd(repo)
     } catch (err) {
@@ -51,9 +104,14 @@ export default function RepoForm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-700/50 rounded-2xl shadow-2xl">
+      <div className="w-full max-w-xl bg-gray-900 border border-gray-700/50 rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-gray-800/60">
-          <h2 className="font-semibold text-gray-100">Add Repository</h2>
+          <div>
+            <h2 className="font-semibold text-gray-100">Connect Repository</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              QA Lens only reads from GitHub and stores its own managed clone.
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="p-1 text-gray-500 hover:text-gray-300 transition-colors">
@@ -68,73 +126,138 @@ export default function RepoForm({
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-6 space-y-4">
+        <form onSubmit={submit} className="p-6 space-y-5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Local path *</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">GitHub URL *</label>
             <div className="flex gap-2">
               <input
-                value={localPath}
-                onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="/Users/me/projects/probuild-api"
-                className="flex-1 min-w-0 px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-sm font-mono focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+                value={githubUrl}
+                onChange={(e) => {
+                  setGithubUrl(e.target.value)
+                  setBranches([])
+                  setSelectedBranches(new Set())
+                }}
+                placeholder="https://github.com/org/repo"
+                className="flex-1 min-w-0 px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
                 autoFocus
               />
               <button
                 type="button"
-                onClick={pickFolder}
-                disabled={picking}
-                title="Browse for folder"
-                className="flex-shrink-0 flex items-center justify-center w-10 h-10 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700/50 rounded-lg text-gray-400 hover:text-gray-200 transition-colors">
-                {picking ? (
-                  <svg
-                    className="animate-spin"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="none">
-                    <circle
-                      cx="7"
-                      cy="7"
-                      r="5.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeDasharray="8 8"
-                    />
-                  </svg>
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-                    <path
-                      d="M1.5 4.5A1 1 0 012.5 3.5h3l1.5 1.5H12.5a1 1 0 011 1v5a1 1 0 01-1 1h-10a1 1 0 01-1-1v-6z"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
+                onClick={discoverBranches}
+                disabled={discovering || !githubUrl.trim()}
+                className="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700/50 rounded-lg text-gray-300 text-sm transition-colors">
+                {discovering ? 'Checking...' : 'Discover'}
               </button>
             </div>
           </div>
+
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">Branch</label>
+            {credentials.length > 0 && (
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Saved access
+                </label>
+                <select
+                  value={githubCredentialId}
+                  onChange={(e) => {
+                    setGithubCredentialId(e.target.value)
+                    setBranches([])
+                    setSelectedBranches(new Set())
+                  }}
+                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors">
+                  <option value="">Use token below or public access</option>
+                  {credentials.map((credential) => (
+                    <option key={credential.id} value={credential.id}>
+                      {credential.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="block text-xs font-medium text-gray-400">
+                GitHub token
+                <span className="text-gray-600 font-normal ml-1">(optional, read-only)</span>
+              </label>
+              <div className="relative group">
+                <button
+                  type="button"
+                  aria-label="What is a GitHub token?"
+                  className="flex h-4 w-4 items-center justify-center rounded-full border border-gray-700 text-[10px] text-gray-500 hover:border-indigo-500/60 hover:text-indigo-300 transition-colors">
+                  ?
+                </button>
+                <div className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-72 -translate-x-1/2 rounded-xl border border-gray-700/70 bg-gray-950 p-3 text-xs leading-relaxed text-gray-400 shadow-2xl group-hover:block">
+                  A GitHub Personal Access Token lets QA Lens read private repositories. Create a
+                  fine-grained token in GitHub Settings → Developer settings → Personal access
+                  tokens, and grant read-only access to the repository contents. QA Lens uses it
+                  only for branch discovery, clone, and fetch.
+                </div>
+              </div>
+            </div>
             <input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
-              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-sm font-mono focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+              type="password"
+              value={githubToken}
+              disabled={Boolean(githubCredentialId)}
+              onChange={(e) => {
+                setGithubToken(e.target.value)
+                setBranches([])
+                setSelectedBranches(new Set())
+              }}
+              placeholder="Fine-grained token with repository read access"
+              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
             />
+            {!githubCredentialId && githubToken.trim() && (
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={credentialName}
+                  onChange={(e) => setCredentialName(e.target.value)}
+                  placeholder="Save as: ProBuild GitHub"
+                  className="flex-1 min-w-0 px-3 py-2 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-xs focus:outline-none focus:border-indigo-500/70"
+                />
+                <button
+                  type="button"
+                  onClick={saveCredential}
+                  disabled={!credentialName.trim()}
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700/50 rounded-lg text-gray-300 text-xs transition-colors">
+                  Save token
+                </button>
+              </div>
+            )}
+            <p className="mt-1.5 text-xs text-gray-600">
+              Save a project credential once, then reuse it for every ProBuild repository.
+            </p>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              GitHub URL
-              <span className="text-gray-600 font-normal ml-1">(optional)</span>
-            </label>
-            <input
-              value={githubUrl}
-              onChange={(e) => setGithubUrl(e.target.value)}
-              placeholder="https://github.com/org/repo"
-              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
-            />
-          </div>
+
+          {branches.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-medium text-gray-400">Branches to track</label>
+                <span className="text-xs text-gray-600">{selectedBranches.size} selected</span>
+              </div>
+              <div className="max-h-56 overflow-y-auto rounded-xl border border-gray-800/80 bg-gray-950/40 p-2 space-y-1">
+                {branches.map((branch) => {
+                  const checked = selectedBranches.has(branch.name)
+                  return (
+                    <button
+                      type="button"
+                      key={branch.name}
+                      onClick={() => toggleBranch(branch.name)}
+                      className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                        checked
+                          ? 'bg-indigo-500/10 text-indigo-200 border border-indigo-500/20'
+                          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 border border-transparent'
+                      }`}>
+                      <span className="font-mono text-xs truncate">{branch.name}</span>
+                      <span className="text-[10px] text-gray-600 font-mono">
+                        {branch.commitHash.slice(0, 7)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {error && (
             <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>
@@ -149,9 +272,9 @@ export default function RepoForm({
             </button>
             <button
               type="submit"
-              disabled={loading || !localPath.trim()}
+              disabled={loading || !githubUrl.trim() || selectedBranches.size === 0}
               className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors">
-              {loading ? 'Adding...' : 'Add'}
+              {loading ? 'Connecting...' : 'Connect'}
             </button>
           </div>
         </form>

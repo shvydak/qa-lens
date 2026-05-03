@@ -137,3 +137,62 @@ describe('GET /api/projects/:projectId/test-sets', () => {
     expect(res.body.data).toEqual([])
   })
 })
+
+describe('GET /api/test-sets/:id', () => {
+  it('returns analysis runs and test analysis metadata', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+    const testSetId = seedTestSet(testDb, projectId, {
+      id: 'ts-1',
+      commitRanges: {'repo-1-branch': {from: null, to: 'head-hash'}},
+    })
+    testDb
+      .prepare(
+        `
+        INSERT INTO analysis_runs (id, test_set_id, label, commit_ranges, ai_summary)
+        VALUES (?, ?, ?, ?, ?)
+      `
+      )
+      .run(
+        'run-1',
+        testSetId,
+        'Initial analysis 2026-05-03',
+        JSON.stringify({'repo-1-branch': {from: null, to: 'head-hash'}}),
+        'Initial summary'
+      )
+    testDb
+      .prepare(
+        `
+        INSERT INTO tests (
+          id,
+          test_set_id,
+          description,
+          title,
+          priority,
+          analysis_run_id,
+          repository_branch_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      )
+      .run('test-1', testSetId, 'Verify login', 'Verify login', 'high', 'run-1', 'repo-1-branch')
+
+    const res = await request(app).get(`/api/test-sets/${testSetId}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.analysisRuns).toEqual([
+      expect.objectContaining({
+        id: 'run-1',
+        label: 'Initial analysis 2026-05-03',
+        aiSummary: 'Initial summary',
+      }),
+    ])
+    expect(res.body.data.tests).toEqual([
+      expect.objectContaining({
+        id: 'test-1',
+        analysisRunId: 'run-1',
+        repositoryBranchId: 'repo-1-branch',
+      }),
+    ])
+  })
+})

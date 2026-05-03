@@ -27,12 +27,12 @@ import {
   deleteTestSet,
   getRunningJob,
   NoNewCommitsError,
-  ActiveTestSetExistsError,
 } from '../../services/AnalysisService.js'
 import type {AnalysisJob, DiffResult, AIAnalysisOutput} from '../../types/index.js'
 
 const fakeDiff = (repoId: string, from: string | null = null, to = 'head-hash'): DiffResult => ({
   repoId,
+  repositoryBranchId: `${repoId}-branch`,
   repoPath: '/fake/path',
   branch: 'main',
   commits: [
@@ -235,6 +235,7 @@ describe('run', () => {
     mockGetHeadHash.mockResolvedValue('head-hash')
     mockGetDiff.mockResolvedValue({
       repoId: 'repo-1',
+      repositoryBranchId: 'repo-1-branch',
       repoPath: '/fake/path',
       branch: 'main',
       commits: [],
@@ -248,23 +249,40 @@ describe('run', () => {
     await expect(run(makeJob(projectId))).rejects.toThrow(NoNewCommitsError)
   })
 
-  it('throws ActiveTestSetExistsError when same commit ranges already active', async () => {
+  it('throws NoNewCommitsError when the active test set already reaches HEAD', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1'})
 
     mockGetHeadHash.mockResolvedValue('head-hash')
-    mockGetDiff.mockResolvedValue(fakeDiff('repo-1', null, 'head-hash'))
+    mockGetDiff.mockResolvedValue({
+      repoId: 'repo-1',
+      repositoryBranchId: 'repo-1-branch',
+      repoPath: '/fake/path',
+      branch: 'main',
+      commits: [],
+      diff: '',
+      filesChanged: [],
+      stats: '',
+      fromHash: 'head-hash',
+      toHash: 'head-hash',
+    } satisfies DiffResult)
 
-    // Pre-existing active test set with same ranges
     seedTestSet(testDb, projectId, {
       id: 'existing-ts',
       status: 'active',
-      commitRanges: {'repo-1': {from: null, to: 'head-hash'}},
+      commitRanges: {'repo-1-branch': {from: null, to: 'head-hash'}},
     })
 
-    const err = await run(makeJob(projectId)).catch((e) => e)
-    expect(err).toBeInstanceOf(ActiveTestSetExistsError)
-    expect((err as ActiveTestSetExistsError).testSetId).toBe('existing-ts')
+    await expect(run(makeJob(projectId))).rejects.toThrow(NoNewCommitsError)
+    expect(mockGetDiff).toHaveBeenCalledWith(
+      'repo-1',
+      'repo-1-branch',
+      '/fake/path',
+      'main',
+      'head-hash',
+      'head-hash'
+    )
+    expect(mockAnalyze).not.toHaveBeenCalled()
   })
 
   it('creates test set and tests on successful analysis', async () => {
@@ -282,10 +300,97 @@ describe('run', () => {
       | undefined
     expect(ts).toBeDefined()
     expect(ts!.status).toBe('active')
-    expect(JSON.parse(ts!.commit_ranges)).toMatchObject({'repo-1': {to: 'head-hash'}})
+    expect(JSON.parse(ts!.commit_ranges)).toMatchObject({'repo-1-branch': {to: 'head-hash'}})
 
     const tests = testDb.prepare('SELECT * FROM tests WHERE test_set_id = ?').all(testSetId)
     expect(tests).toHaveLength(1)
+  })
+
+  it('creates analysis runs and assigns new AI tests to the run that added them', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+
+    mockGetHeadHash.mockResolvedValueOnce('head-1').mockResolvedValueOnce('head-2')
+    mockGetDiff.mockImplementation(
+      (
+        repoId: string,
+        _repositoryBranchId: string,
+        _localPath: string,
+        _branch: string,
+        fromHash: string | null,
+        toHash: string
+      ) => Promise.resolve(fakeDiff(repoId, fromHash, toHash))
+    )
+    mockAnalyze.mockResolvedValue(fakeAiOutput())
+
+    const first = await run(makeJob(projectId))
+    const second = await run(makeJob(projectId))
+
+    expect(second.testSetId).toBe(first.testSetId)
+
+    const runs = testDb
+      .prepare('SELECT * FROM analysis_runs WHERE test_set_id = ? ORDER BY rowid')
+      .all(first.testSetId) as Array<{id: string; label: string}>
+    expect(runs).toHaveLength(2)
+    expect(runs[0].label).toContain('Initial analysis')
+    expect(runs[1].label).toContain('Update')
+
+    const tests = testDb
+      .prepare('SELECT analysis_run_id FROM tests WHERE test_set_id = ? ORDER BY sort_order')
+      .all(first.testSetId) as Array<{analysis_run_id: string}>
+    expect(tests).toHaveLength(2)
+    expect(tests[0].analysis_run_id).toBe(runs[0].id)
+    expect(tests[1].analysis_run_id).toBe(runs[1].id)
+  })
+
+  it('creates separate active test sets for different active branch combinations', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+    testDb
+      .prepare(
+        `
+        INSERT INTO repository_branches (id, repository_id, name, status, is_active)
+        VALUES (?, ?, ?, 'active', 0)
+      `
+      )
+      .run('repo-1-feature', 'repo-1', 'feature/login-fix')
+
+    mockGetHeadHash.mockResolvedValueOnce('main-head').mockResolvedValueOnce('feature-head')
+    mockGetDiff.mockImplementation(
+      (
+        repoId: string,
+        repositoryBranchId: string,
+        _localPath: string,
+        _branch: string,
+        fromHash: string | null,
+        toHash: string
+      ) => Promise.resolve({...fakeDiff(repoId, fromHash, toHash), repositoryBranchId})
+    )
+    mockAnalyze.mockResolvedValue(fakeAiOutput())
+
+    const mainRun = await run(makeJob(projectId))
+
+    testDb.transaction(() => {
+      testDb
+        .prepare('UPDATE repository_branches SET is_active = 0 WHERE repository_id = ?')
+        .run('repo-1')
+      testDb
+        .prepare('UPDATE repository_branches SET is_active = 1 WHERE id = ?')
+        .run('repo-1-feature')
+      testDb
+        .prepare('UPDATE repositories SET branch = ? WHERE id = ?')
+        .run('feature/login-fix', 'repo-1')
+    })()
+
+    const featureRun = await run(makeJob(projectId))
+
+    expect(featureRun.testSetId).not.toBe(mainRun.testSetId)
+
+    const activeSets = testDb
+      .prepare('SELECT analysis_context_id FROM test_sets WHERE project_id = ? AND status = ?')
+      .all(projectId, 'active') as Array<{analysis_context_id: string}>
+    expect(activeSets).toHaveLength(2)
+    expect(new Set(activeSets.map((set) => set.analysis_context_id)).size).toBe(2)
   })
 
   it('prevents concurrent runs for the same project', async () => {
@@ -312,7 +417,7 @@ describe('run', () => {
     await firstRun.catch(() => {})
   })
 
-  it('does not treat active test sets with different ranges as duplicates', async () => {
+  it('appends new analysis to the active test set instead of creating another active set', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: 'old-hash'})
 
@@ -320,14 +425,37 @@ describe('run', () => {
     mockGetDiff.mockResolvedValue(fakeDiff('repo-1', 'old-hash', 'new-head'))
     mockAnalyze.mockResolvedValue(fakeAiOutput())
 
-    // Active test set with DIFFERENT ranges
-    seedTestSet(testDb, projectId, {
+    const activeTestSetId = seedTestSet(testDb, projectId, {
+      id: 'active-ts',
       status: 'active',
-      commitRanges: {'repo-1': {from: null, to: 'old-hash'}},
+      commitRanges: {'repo-1-branch': {from: null, to: 'old-hash'}},
     })
 
-    // Should succeed — ranges differ
     const {testSetId} = await run(makeJob(projectId))
-    expect(testSetId).toBeDefined()
+    expect(testSetId).toBe(activeTestSetId)
+
+    expect(mockGetDiff).toHaveBeenCalledWith(
+      'repo-1',
+      'repo-1-branch',
+      '/fake/path',
+      'main',
+      'old-hash',
+      'new-head'
+    )
+
+    const testSets = testDb.prepare('SELECT * FROM test_sets WHERE project_id = ?').all(projectId)
+    expect(testSets).toHaveLength(1)
+
+    const updated = testDb
+      .prepare('SELECT commit_ranges FROM test_sets WHERE id = ?')
+      .get(testSetId) as {
+      commit_ranges: string
+    }
+    expect(JSON.parse(updated.commit_ranges)).toMatchObject({
+      'repo-1-branch': {from: null, to: 'new-head'},
+    })
+
+    const tests = testDb.prepare('SELECT * FROM tests WHERE test_set_id = ?').all(testSetId)
+    expect(tests).toHaveLength(1)
   })
 })

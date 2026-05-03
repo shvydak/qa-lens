@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 export const config = {
   port: Number(process.env.PORT) || 3001,
   dbPath: process.env.DB_PATH || join(__dirname, '../../qa-lens.db'),
+  managedReposPath: process.env.MANAGED_REPOS_PATH || join(__dirname, '../../managed-repos'),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
   aiProviders: (process.env.AI_PROVIDERS || 'claude,gemini,anthropic').split(',') as AIProvider[],
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',

@@ -56,6 +56,8 @@ beforeEach(() => {
 
 Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
+Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes/repositories.test.ts`.
+
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
 
@@ -82,6 +84,12 @@ npm workspaces monorepo with two packages:
 
 **DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings. `repositories` has `UNIQUE(project_id, local_path)` — use distinct `localPath` per repo when seeding tests.
 
+**Managed GitHub repos:** Repositories can be `source_type='managed_clone'`; QA Lens clones GitHub repos into `MANAGED_REPOS_PATH` and must not touch user working directories.
+
+**Repository branches:** `repository_branches` is the analysis target layer; each branch has its own `status`, `is_active`, `last_fetched_at`, and `last_analyzed_commit_hash`.
+
+**GitHub credentials:** `github_credentials` stores reusable project-level PATs; repository responses must expose only `hasAuthToken`/`githubCredentialId`, never token values.
+
 **DB row mapping:** better-sqlite3 returns raw schema keys (`snake_case`); map rows to camelCase domain/API objects (e.g. `repoFromRow`) before using `Repository` types or service logic.
 
 **IDs:** `src/utils/ulid.ts` — custom time-sortable ID generator, no external dependency.
@@ -90,13 +98,27 @@ npm workspaces monorepo with two packages:
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives `status: 'passed'`, it must call `markTestSetPassed()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
 
-**Analysis cursor:** `commit_ranges` is per repository (`repoId -> { from, to }`); passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each repo.
+**Analysis cursor:** `commit_ranges` is keyed by `repositoryBranchId` for new analyses; keep legacy `repoId` fallback only for old data. Passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each tracked branch.
 
-**Uninitialized analysis cursor:** When `last_analyzed_commit_hash` is null, `GitService.getCommitsSince()` uses `git log -50`, so repo cards show up to `50 new` until the first passed test set advances the cursor.
+**Analysis contexts:** `analysis_contexts` represents a project branch-combination (`branch_signature`); active test sets are scoped by `projectId + analysis_context_id`, not just project.
 
-**Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; frontend relative-time code must treat DB timestamps as UTC or store ISO strings with `Z`.
+**Analysis runs:** Each initial/update analysis inserts an `analysis_runs` row; AI-created tests store `analysis_run_id` so the UI can group tests by update while still sorting by priority.
 
-**Duplicate analysis guard:** `AnalysisService.run()` must reject an existing `active` test set with the same `commit_ranges` before calling AI, returning `active_test_set_exists:<id>`.
+**Read-only Git:** GitHub operations must remain read-only (`ls-remote`, `clone`, `fetch`, `log`, `diff`, `rev-parse`); never add `push`, `commit`, `merge`, `rebase`, `reset`, or remote delete flows.
+
+**GitHub tokens:** PATs are stored locally for MVP and passed to Git-over-HTTPS via Basic auth (`x-access-token:<token>`); API responses expose only `hasAuthToken`, never the token.
+
+**Branch sync:** `POST /api/repos/:repoId/sync-branches` marks tracked branches `active`/`missing` and returns untracked remote branches; old analysis history must remain even when a remote branch disappears.
+
+**SQLite migrations:** For columns added via `ensureColumn()`, create dependent indexes after `ensureColumn()` in `runMigrations()`, not in the initial `schema.sql` exec.
+
+**Managed repo storage:** Keep `packages/managed-repos/` ignored by git and ESLint; cloned customer repos are input data, not QA Lens source.
+
+**Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
+
+**Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; normalize API timestamps to ISO `Z` in mappers before frontend relative-time parsing.
+
+**Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.
 
 **Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
 
@@ -114,18 +136,27 @@ npm workspaces monorepo with two packages:
 
 **UI language:** English only.
 
+**TypeScript (frontend):** the workspace `tsc` target does not include `Array.prototype.at` — use `arr[arr.length - 1]` (otherwise `npm run type-check` fails with TS2550).
+
+**Repo refresh UI:** `RepoCard` ties the refresh icon spin to `syncingRepoId === repo.id` from `ProjectDetailPage` — wrap `POST /api/repos/:id/fetch` with `setSyncingRepoId`, not only `sync-branches`.
+
+**Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
+
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`); UI may group history by `analysisContextId` / `branchSignature`.
+
 ## Environment
 
 Key variables:
 
-| Variable            | Default                   | Purpose                                       |
-| ------------------- | ------------------------- | --------------------------------------------- |
-| `PORT`              | `3001`                    | Backend port                                  |
-| `DB_PATH`           | `packages/qa-lens.db`     | SQLite file location                          |
-| `CLIENT_ORIGIN`     | `http://localhost:5173`   | Allowed CORS origin for the backend           |
-| `VITE_API_URL`      | `http://localhost:3001`   | Frontend API base URL                         |
-| `AI_PROVIDERS`      | `claude,gemini,anthropic` | Provider order for waterfall                  |
-| `ANTHROPIC_API_KEY` | —                         | Required only if `anthropic` provider is used |
+| Variable             | Default                   | Purpose                                                |
+| -------------------- | ------------------------- | ------------------------------------------------------ |
+| `PORT`               | `3001`                    | Backend port                                           |
+| `DB_PATH`            | `packages/qa-lens.db`     | SQLite file location                                   |
+| `MANAGED_REPOS_PATH` | `packages/managed-repos`  | Internal clone storage for GitHub-managed repositories |
+| `CLIENT_ORIGIN`      | `http://localhost:5173`   | Allowed CORS origin for the backend                    |
+| `VITE_API_URL`       | `http://localhost:3001`   | Frontend API base URL                                  |
+| `AI_PROVIDERS`       | `claude,gemini,anthropic` | Provider order for waterfall                           |
+| `ANTHROPIC_API_KEY`  | —                         | Required only if `anthropic` provider is used          |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 

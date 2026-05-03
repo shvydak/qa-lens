@@ -15,6 +15,9 @@ build/
 *.db-shm
 *.db-wal
 
+# Managed Git clones created by QA Lens
+packages/managed-repos/
+
 # Logs and debug
 logs/
 *.log

@@ -38,6 +38,19 @@ export function seedRepo(
     opts.branch ?? 'main',
     opts.lastAnalyzedCommitHash ?? null
   )
+  db.prepare(
+    `
+    INSERT INTO repository_branches (
+      id,
+      repository_id,
+      name,
+      status,
+      is_active,
+      last_analyzed_commit_hash
+    )
+    VALUES (?, ?, ?, 'active', 1, ?)
+  `
+  ).run(`${id}-branch`, id, opts.branch ?? 'main', opts.lastAnalyzedCommitHash ?? null)
   return id
 }
 

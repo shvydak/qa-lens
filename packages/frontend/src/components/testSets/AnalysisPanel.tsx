@@ -4,15 +4,20 @@ export default function AnalysisPanel({
   status,
   disabled,
   disabledReason,
+  actionLabel = 'Run Analysis',
+  helpText = 'AI will analyze all new commits across all repositories',
+  activeMode = false,
   onAnalyze,
 }: {
   status: AnalysisStatus
   disabled?: boolean
   disabledReason?: string
+  actionLabel?: string
+  helpText?: string
+  activeMode?: boolean
   onAnalyze: () => void
 }) {
   const isNoNewCommits = status.error === 'no_new_commits'
-  const isDuplicateActiveTestSet = status.error?.startsWith('active_test_set_exists:')
 
   return (
     <div className="bg-gray-900 border border-gray-800/50 rounded-xl p-5">
@@ -28,7 +33,7 @@ export default function AnalysisPanel({
         </div>
       ) : (
         <>
-          {status.error && !isNoNewCommits && !isDuplicateActiveTestSet && (
+          {status.error && !isNoNewCommits && (
             <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
               <p className="text-xs font-medium text-red-400 mb-0.5">Analysis failed</p>
               <p className="text-xs text-red-400/70">{status.error}</p>
@@ -46,14 +51,10 @@ export default function AnalysisPanel({
                   strokeLinejoin="round"
                 />
               </svg>
-              <p className="text-xs text-emerald-400">All commits have already been analyzed</p>
-            </div>
-          )}
-
-          {isDuplicateActiveTestSet && (
-            <div className="mb-4 px-3 py-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
-              <p className="text-xs text-indigo-300">
-                An active test set already covers these commits
+              <p className="text-xs text-emerald-400">
+                {activeMode
+                  ? 'The active test set already includes the latest commits'
+                  : 'All commits have already been analyzed'}
               </p>
             </div>
           )}
@@ -78,12 +79,10 @@ export default function AnalysisPanel({
                 opacity="0.5"
               />
             </svg>
-            Run Analysis
+            {actionLabel}
           </button>
           <p className="text-xs text-gray-600 text-center mt-2">
-            {disabled && disabledReason
-              ? disabledReason
-              : 'AI will analyze all new commits across all repositories'}
+            {disabled && disabledReason ? disabledReason : helpText}
           </p>
         </>
       )}
