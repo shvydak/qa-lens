@@ -62,8 +62,7 @@ const STATUS_TITLE: Record<Test['status'], string> = {
 }
 
 const STATUS_CARD: Record<Test['status'], string> = {
-  not_tested:
-    'border-transparent hover:border-gray-800/70 hover:bg-gray-900/60',
+  not_tested: 'border-transparent hover:border-gray-800/70 hover:bg-gray-900/60',
   pass: 'border-emerald-500/25 bg-emerald-950/35 hover:border-emerald-500/35 hover:bg-emerald-950/45',
   fail: 'border-red-500/25 bg-red-950/35 hover:border-red-500/35 hover:bg-red-950/45',
   skip: 'border-gray-700/40 bg-gray-900/50 hover:border-gray-600/55 hover:bg-gray-900/65',
