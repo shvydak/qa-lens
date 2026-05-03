@@ -53,11 +53,20 @@ const STATUS_ICON: Record<Test['status'], React.ReactNode> = {
   ),
 }
 
-const STATUS_TEXT: Record<Test['status'], string> = {
-  not_tested: 'text-gray-300',
-  pass: 'text-emerald-300/70 line-through',
-  fail: 'text-red-300',
-  skip: 'text-gray-500 line-through',
+/** Title / secondary description only — no line-through (it made long scenarios unreadable). */
+const STATUS_TITLE: Record<Test['status'], string> = {
+  not_tested: 'text-gray-100',
+  pass: 'text-emerald-100',
+  fail: 'text-red-100',
+  skip: 'text-gray-400',
+}
+
+const STATUS_CARD: Record<Test['status'], string> = {
+  not_tested:
+    'border-transparent hover:border-gray-800/70 hover:bg-gray-900/60',
+  pass: 'border-emerald-500/25 bg-emerald-950/35 hover:border-emerald-500/35 hover:bg-emerald-950/45',
+  fail: 'border-red-500/25 bg-red-950/35 hover:border-red-500/35 hover:bg-red-950/45',
+  skip: 'border-gray-700/40 bg-gray-900/50 hover:border-gray-600/55 hover:bg-gray-900/65',
 }
 
 export default function TestItem({
@@ -81,7 +90,8 @@ export default function TestItem({
     Boolean(test.technicalContext)
 
   return (
-    <div className="group flex items-start gap-3 px-4 py-3 rounded-xl border border-transparent hover:border-gray-800/70 hover:bg-gray-900/60 transition-colors">
+    <div
+      className={`group flex items-start gap-3 px-4 py-3 rounded-xl border transition-colors ${STATUS_CARD[test.status]}`}>
       <button
         type="button"
         onClick={() => onStatusChange(STATUS_CYCLE[test.status])}
@@ -105,10 +115,10 @@ export default function TestItem({
           {test.source === 'manual' && <span className="text-xs text-gray-700">manual</span>}
           {metadata && <span className="text-xs text-gray-600">{metadata}</span>}
         </div>
-        <p className={`text-sm font-medium leading-snug ${STATUS_TEXT[test.status]}`}>{title}</p>
+        <p className={`text-sm font-medium leading-snug ${STATUS_TITLE[test.status]}`}>{title}</p>
 
         {hasStructuredDetails ? (
-          <div className={`mt-2 space-y-3 text-sm ${STATUS_TEXT[test.status]}`}>
+          <div className="mt-2 space-y-3 text-sm">
             {test.userScenario && (
               <p className="leading-relaxed text-gray-400">
                 <span className="text-gray-500">Scenario:</span> {test.userScenario}
@@ -177,7 +187,7 @@ export default function TestItem({
           </div>
         ) : (
           test.title && (
-            <p className={`mt-1 text-sm leading-snug ${STATUS_TEXT[test.status]}`}>
+            <p className={`mt-1 text-sm leading-snug ${STATUS_TITLE[test.status]}`}>
               {test.description}
             </p>
           )
