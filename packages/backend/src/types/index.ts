@@ -55,6 +55,8 @@ export interface TestSet {
   crossImpacts: string[]
   createdAt: string
   completedAt: string | null
+  analysisRunCount?: number
+  latestAnalysisRunAt?: string | null
   analysisRuns?: AnalysisRun[]
 }
 

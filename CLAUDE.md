@@ -136,6 +136,14 @@ npm workspaces monorepo with two packages:
 
 **UI language:** English only.
 
+**TypeScript (frontend):** the workspace `tsc` target does not include `Array.prototype.at` — use `arr[arr.length - 1]` (otherwise `npm run type-check` fails with TS2550).
+
+**Repo refresh UI:** `RepoCard` ties the refresh icon spin to `syncingRepoId === repo.id` from `ProjectDetailPage` — wrap `POST /api/repos/:id/fetch` with `setSyncingRepoId`, not only `sync-branches`.
+
+**Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
+
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`); UI may group history by `analysisContextId` / `branchSignature`.
+
 ## Environment
 
 Key variables:

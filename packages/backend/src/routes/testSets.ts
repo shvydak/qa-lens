@@ -11,11 +11,17 @@ testSetsRouter.get('/', (req, res) => {
   const rows = db
     .prepare(
       `
-      SELECT ts.*, ac.branch_signature
+      SELECT
+        ts.*,
+        ac.branch_signature,
+        COUNT(ar.id) AS analysis_run_count,
+        MAX(ar.created_at) AS latest_analysis_run_at
       FROM test_sets ts
       LEFT JOIN analysis_contexts ac ON ac.id = ts.analysis_context_id
+      LEFT JOIN analysis_runs ar ON ar.test_set_id = ts.id
       WHERE ts.project_id = ?
-      ORDER BY ts.created_at DESC
+      GROUP BY ts.id
+      ORDER BY COALESCE(MAX(ar.created_at), ts.created_at) DESC
     `
     )
     .all(projectId)
@@ -118,6 +124,8 @@ function toDto(row: unknown) {
         : (r.cross_impacts ?? []),
     createdAt: r.created_at,
     completedAt: r.completed_at ?? null,
+    analysisRunCount: Number(r.analysis_run_count ?? 0),
+    latestAnalysisRunAt: r.latest_analysis_run_at ?? null,
   }
 }
 
