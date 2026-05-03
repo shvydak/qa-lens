@@ -294,7 +294,17 @@ export default function RepoCard({
                   </svg>
                 </button>
                 <button
-                  onClick={onDelete}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const label = repo.githubUrl ?? repoName(repo.localPath)
+                    if (
+                      !window.confirm(`Remove "${label}" from this project? This cannot be undone.`)
+                    ) {
+                      return
+                    }
+                    onDelete()
+                  }}
                   title="Delete"
                   className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

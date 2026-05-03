@@ -30,6 +30,8 @@ npm run build
 npm start
 ```
 
+**Linting:** Use root `npm run lint`; `packages/backend` has no standalone `lint` script.
+
 **Git hooks (husky):** pre-commit runs format + lint + type-check; pre-push also runs tests.
 Set `SKIP_PRECOMMIT=1` or `SKIP_PREPUSH=1` to bypass. Set `SKIP_TESTS=1` to skip tests on push.
 
@@ -58,6 +60,8 @@ Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory fu
 
 Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes/repositories.test.ts`.
 
+Managed repo deletion tests: cover folder cleanup on repo/project delete, shared-path preservation, outside-`MANAGED_REPOS_PATH` guard, unknown repo `404`, and failed clone/setup cleanup.
+
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
 
@@ -85,6 +89,8 @@ npm workspaces monorepo with two packages:
 **DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings. `repositories` has `UNIQUE(project_id, local_path)` — use distinct `localPath` per repo when seeding tests.
 
 **Managed GitHub repos:** Repositories can be `source_type='managed_clone'`; QA Lens clones GitHub repos into `MANAGED_REPOS_PATH` and must not touch user working directories.
+
+**Managed clone lifecycle:** Repository creation is GitHub-only (`githubUrl` required); do not accept user `localPath`. Delete managed clone folders via `ManagedRepoStorage` only when no DB rows still reference the path, and only inside `MANAGED_REPOS_PATH`.
 
 **Repository branches:** `repository_branches` is the analysis target layer; each branch has its own `status`, `is_active`, `last_fetched_at`, and `last_analyzed_commit_hash`.
 

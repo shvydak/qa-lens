@@ -4,6 +4,7 @@ import {join} from 'path'
 import {config} from '../config.js'
 import {getDb} from '../db/index.js'
 import {repoBranchFromRow, repoFromRow} from '../db/mappers.js'
+import {deleteManagedRepoFolders} from '../services/ManagedRepoStorage.js'
 import {ulid} from '../utils/ulid.js'
 import * as GitService from '../services/GitService.js'
 import type {Repository, RepositoryBranch} from '../types/index.js'
@@ -157,50 +158,41 @@ reposRouter.get('/', async (req, res) => {
 reposRouter.post('/', async (req, res) => {
   const {projectId} = req.params as {projectId: string}
   const {
-    localPath,
     githubUrl,
     githubToken,
     githubCredentialId,
     branch = 'main',
     branchNames,
   } = req.body as {
-    localPath?: string
     githubUrl?: string
     githubToken?: string
     githubCredentialId?: string
     branch?: string
     branchNames?: string[]
   }
+  const remoteUrl = githubUrl?.trim() || null
+  if (!remoteUrl) return res.status(400).json({error: 'githubUrl is required'})
 
   const selectedBranches = normalizeBranchNames(branchNames?.length ? branchNames : [branch])
   if (selectedBranches.length === 0)
     return res.status(400).json({error: 'At least one branch is required'})
 
-  let sourceType: Repository['sourceType'] = 'local_path'
-  let repoLocalPath = localPath?.trim() ?? ''
-  const remoteUrl = githubUrl?.trim() || null
+  const sourceType: Repository['sourceType'] = 'managed_clone'
   const remoteToken = githubToken?.trim() || getCredentialToken(projectId, githubCredentialId)
   const credentialId = githubCredentialId?.trim() || null
   const id = ulid()
+  const repoLocalPath = join(config.managedReposPath, `${safeRepoSlug(remoteUrl)}-${id}`)
 
-  if (repoLocalPath) {
-    const validation = await GitService.validateRepo(repoLocalPath)
-    if (!validation.valid) return res.status(400).json({error: validation.error})
-  } else if (remoteUrl) {
-    sourceType = 'managed_clone'
-    mkdirSync(config.managedReposPath, {recursive: true})
-    repoLocalPath = join(config.managedReposPath, `${safeRepoSlug(remoteUrl)}-${id}`)
-    try {
-      await GitService.cloneRepository(remoteUrl, repoLocalPath, remoteToken)
-      await GitService.fetchOrigin(repoLocalPath, selectedBranches[0], remoteToken)
-      await GitService.checkoutBranch(repoLocalPath, selectedBranches[0])
-    } catch (err) {
-      return res.status(400).json({
-        error: err instanceof Error ? err.message : 'Failed to clone repository',
-      })
-    }
-  } else {
-    return res.status(400).json({error: 'githubUrl or localPath is required'})
+  mkdirSync(config.managedReposPath, {recursive: true})
+  try {
+    await GitService.cloneRepository(remoteUrl, repoLocalPath, remoteToken)
+    await GitService.fetchOrigin(repoLocalPath, selectedBranches[0], remoteToken)
+    await GitService.checkoutBranch(repoLocalPath, selectedBranches[0])
+  } catch (err) {
+    deleteManagedRepoFolders([{localPath: repoLocalPath, sourceType}])
+    return res.status(400).json({
+      error: err instanceof Error ? err.message : 'Failed to clone repository',
+    })
   }
 
   const db = getDb()
@@ -225,6 +217,7 @@ reposRouter.post('/', async (req, res) => {
       insertBranches(id, selectedBranches, selectedBranches[0])
     })()
   } catch (err: unknown) {
+    deleteManagedRepoFolders([{localPath: repoLocalPath, sourceType}])
     if (err instanceof Error && err.message.includes('UNIQUE')) {
       return res.status(409).json({error: 'Repository already added to this project'})
     }
@@ -239,7 +232,21 @@ reposRouter.post('/', async (req, res) => {
 
 repoActionsRouter.delete('/:repoId', (req, res) => {
   const db = getDb()
+  const repo = db
+    .prepare('SELECT local_path, source_type FROM repositories WHERE id = ?')
+    .get(req.params.repoId) as {local_path: string; source_type: string | null} | undefined
+
+  if (!repo) return res.status(404).json({error: 'Repository not found'})
+
   db.prepare('DELETE FROM repositories WHERE id = ?').run(req.params.repoId)
+
+  const stillReferenced = db
+    .prepare('SELECT COUNT(*) as count FROM repositories WHERE local_path = ?')
+    .get(repo.local_path) as {count: number}
+  if (stillReferenced.count === 0) {
+    deleteManagedRepoFolders([{localPath: repo.local_path, sourceType: repo.source_type}])
+  }
+
   res.json({data: {ok: true}})
 })
 

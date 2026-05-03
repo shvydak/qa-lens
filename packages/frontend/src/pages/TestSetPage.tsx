@@ -148,6 +148,7 @@ export default function TestSetPage() {
           <div className="flex flex-col sm:flex-row gap-2">
             {testSet.status === 'passed' && (
               <button
+                type="button"
                 onClick={() => deleteTestSet(true)}
                 disabled={deleting}
                 className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-amber-300 text-xs font-medium rounded-lg transition-colors border border-amber-500/20">
@@ -155,6 +156,7 @@ export default function TestSetPage() {
               </button>
             )}
             <button
+              type="button"
               onClick={() => deleteTestSet(false)}
               disabled={deleting}
               className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-xs font-medium rounded-lg transition-colors border border-red-500/20">

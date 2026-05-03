@@ -1,6 +1,9 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
+import {existsSync, mkdirSync, rmSync} from 'fs'
+import {join} from 'path'
+import {config} from '../../config.js'
 import {createTestDb, seedProject, seedRepo, seedTestSet} from '../helpers/db.js'
 
 const gitMocks = vi.hoisted(() => ({
@@ -150,6 +153,18 @@ describe('POST /api/projects/:projectId/repos/discover-branches', () => {
 })
 
 describe('POST /api/projects/:projectId/repos', () => {
+  it('rejects direct local path repositories', async () => {
+    const projectId = seedProject(testDb)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({localPath: '/tmp/repo', branchNames: ['main']})
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('githubUrl is required')
+    expect(gitMocks.validateRepo).not.toHaveBeenCalled()
+  })
+
   it('stores the token for managed clones without returning it in the response', async () => {
     const projectId = seedProject(testDb)
     gitMocks.cloneRepository.mockResolvedValue(undefined)
@@ -183,6 +198,27 @@ describe('POST /api/projects/:projectId/repos', () => {
     expect(row?.github_token).toBe('secret-token')
   })
 
+  it('cleans up the managed clone folder when setup fails', async () => {
+    const projectId = seedProject(testDb)
+    let clonedPath = ''
+    gitMocks.cloneRepository.mockImplementation(async (_url: string, localPath: string) => {
+      clonedPath = localPath
+      mkdirSync(localPath, {recursive: true})
+    })
+    gitMocks.fetchOrigin.mockRejectedValue(new Error('fetch failed'))
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({
+        githubUrl: 'https://github.com/org/repo',
+        branchNames: ['main'],
+      })
+
+    expect(res.status).toBe(400)
+    expect(clonedPath).not.toBe('')
+    expect(existsSync(clonedPath)).toBe(false)
+  })
+
   it('uses a saved credential when creating a managed clone', async () => {
     const projectId = seedProject(testDb)
     testDb
@@ -209,6 +245,69 @@ describe('POST /api/projects/:projectId/repos', () => {
       'saved-token'
     )
     expect(gitMocks.fetchOrigin).toHaveBeenCalledWith(expect.any(String), 'staging', 'saved-token')
+  })
+})
+
+describe('DELETE /api/repos/:repoId', () => {
+  it('returns 404 for an unknown repository', async () => {
+    const res = await request(app).delete('/api/repos/missing-repo')
+
+    expect(res.status).toBe(404)
+    expect(res.body.error).toBe('Repository not found')
+  })
+
+  it('deletes an unused managed clone folder from disk', async () => {
+    const projectId = seedProject(testDb)
+    const repoPath = join(config.managedReposPath, 'delete-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-managed', localPath: repoPath})
+    testDb
+      .prepare("UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id = ?")
+      .run('https://github.com/org/repo', 'repo-managed')
+
+    const res = await request(app).delete('/api/repos/repo-managed')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(false)
+  })
+
+  it('keeps a managed clone folder if another repository still references it', async () => {
+    const projectId = seedProject(testDb)
+    const otherProjectId = seedProject(testDb, 'proj-2', 'Other Project')
+    const repoPath = join(config.managedReposPath, 'shared-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-managed-1', localPath: repoPath})
+    seedRepo(testDb, otherProjectId, {id: 'repo-managed-2', localPath: repoPath})
+    testDb
+      .prepare(
+        "UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id IN (?, ?)"
+      )
+      .run('https://github.com/org/repo', 'repo-managed-1', 'repo-managed-2')
+
+    const res = await request(app).delete('/api/repos/repo-managed-1')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(true)
+    rmSync(repoPath, {recursive: true, force: true})
+  })
+
+  it('does not delete managed clone paths outside the managed repos directory', async () => {
+    const projectId = seedProject(testDb)
+    const repoPath = join(config.managedReposPath, '..', 'outside-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-outside-managed', localPath: repoPath})
+    testDb
+      .prepare("UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id = ?")
+      .run('https://github.com/org/repo', 'repo-outside-managed')
+
+    const res = await request(app).delete('/api/repos/repo-outside-managed')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(true)
+    rmSync(repoPath, {recursive: true, force: true})
   })
 })
 
