@@ -10,6 +10,7 @@ export interface Repository {
   projectId: string
   localPath: string
   githubUrl: string | null
+  githubCredentialId: string | null
   hasAuthToken: boolean
   sourceType: 'local_path' | 'managed_clone'
   branch: string
@@ -19,6 +20,14 @@ export interface Repository {
   activeBranch: RepositoryBranch | null
   unanalyzedCount?: number
   analysisCursor?: 'active' | 'baseline' | 'none'
+}
+
+export interface GitHubCredential {
+  id: string
+  projectId: string
+  name: string
+  hasToken: boolean
+  createdAt: string
 }
 
 export interface RepositoryBranch {
@@ -39,6 +48,8 @@ export interface RemoteBranch {
 export interface TestSet {
   id: string
   projectId: string
+  analysisContextId: string | null
+  branchSignature: string | null
   name: string
   status: 'active' | 'passed' | 'failed'
   commitRanges: Record<string, {from: string | null; to: string}>
@@ -49,6 +60,16 @@ export interface TestSet {
   createdAt: string
   completedAt: string | null
   tests?: Test[]
+  analysisRuns?: AnalysisRun[]
+}
+
+export interface AnalysisRun {
+  id: string
+  testSetId: string
+  label: string
+  commitRanges: Record<string, {from: string | null; to: string}>
+  aiSummary: string | null
+  createdAt: string
 }
 
 export interface TestSetCommitTarget {
@@ -73,6 +94,8 @@ export interface Test {
   expectedResult: string | null
   risk: string | null
   technicalContext: string | null
+  analysisRunId: string | null
+  repositoryBranchId: string | null
   status: 'not_tested' | 'pass' | 'fail' | 'skip'
   source: 'ai' | 'manual'
   sortOrder: number

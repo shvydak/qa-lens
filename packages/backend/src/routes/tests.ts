@@ -83,6 +83,8 @@ function toDto(row: unknown) {
     expectedResult: r.expected_result ?? null,
     risk: r.risk ?? null,
     technicalContext: r.technical_context ?? null,
+    analysisRunId: r.analysis_run_id ?? null,
+    repositoryBranchId: r.repository_branch_id ?? null,
     status: r.status,
     source: r.source,
     sortOrder: r.sort_order,

@@ -23,7 +23,9 @@ function runMigrations(db: Database.Database): void {
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8')
   db.exec(schema)
   ensureColumn(db, 'repositories', 'github_token', 'TEXT')
+  ensureColumn(db, 'repositories', 'github_credential_id', 'TEXT')
   ensureColumn(db, 'repositories', 'source_type', "TEXT NOT NULL DEFAULT 'local_path'")
+  ensureColumn(db, 'test_sets', 'analysis_context_id', 'TEXT')
   ensureColumn(db, 'tests', 'title', 'TEXT')
   ensureColumn(db, 'tests', 'user_scenario', 'TEXT')
   ensureColumn(db, 'tests', 'preconditions', 'TEXT')
@@ -31,6 +33,12 @@ function runMigrations(db: Database.Database): void {
   ensureColumn(db, 'tests', 'expected_result', 'TEXT')
   ensureColumn(db, 'tests', 'risk', 'TEXT')
   ensureColumn(db, 'tests', 'technical_context', 'TEXT')
+  ensureColumn(db, 'tests', 'analysis_run_id', 'TEXT')
+  ensureColumn(db, 'tests', 'repository_branch_id', 'TEXT')
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_test_sets_context ON test_sets(analysis_context_id);
+    CREATE INDEX IF NOT EXISTS idx_tests_analysis_run ON tests(analysis_run_id);
+  `)
   backfillRepositoryBranches(db)
 }
 

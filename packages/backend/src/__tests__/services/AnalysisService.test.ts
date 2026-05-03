@@ -306,6 +306,93 @@ describe('run', () => {
     expect(tests).toHaveLength(1)
   })
 
+  it('creates analysis runs and assigns new AI tests to the run that added them', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+
+    mockGetHeadHash.mockResolvedValueOnce('head-1').mockResolvedValueOnce('head-2')
+    mockGetDiff.mockImplementation(
+      (
+        repoId: string,
+        _repositoryBranchId: string,
+        _localPath: string,
+        _branch: string,
+        fromHash: string | null,
+        toHash: string
+      ) => Promise.resolve(fakeDiff(repoId, fromHash, toHash))
+    )
+    mockAnalyze.mockResolvedValue(fakeAiOutput())
+
+    const first = await run(makeJob(projectId))
+    const second = await run(makeJob(projectId))
+
+    expect(second.testSetId).toBe(first.testSetId)
+
+    const runs = testDb
+      .prepare('SELECT * FROM analysis_runs WHERE test_set_id = ? ORDER BY rowid')
+      .all(first.testSetId) as Array<{id: string; label: string}>
+    expect(runs).toHaveLength(2)
+    expect(runs[0].label).toContain('Initial analysis')
+    expect(runs[1].label).toContain('Update')
+
+    const tests = testDb
+      .prepare('SELECT analysis_run_id FROM tests WHERE test_set_id = ? ORDER BY sort_order')
+      .all(first.testSetId) as Array<{analysis_run_id: string}>
+    expect(tests).toHaveLength(2)
+    expect(tests[0].analysis_run_id).toBe(runs[0].id)
+    expect(tests[1].analysis_run_id).toBe(runs[1].id)
+  })
+
+  it('creates separate active test sets for different active branch combinations', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+    testDb
+      .prepare(
+        `
+        INSERT INTO repository_branches (id, repository_id, name, status, is_active)
+        VALUES (?, ?, ?, 'active', 0)
+      `
+      )
+      .run('repo-1-feature', 'repo-1', 'feature/login-fix')
+
+    mockGetHeadHash.mockResolvedValueOnce('main-head').mockResolvedValueOnce('feature-head')
+    mockGetDiff.mockImplementation(
+      (
+        repoId: string,
+        repositoryBranchId: string,
+        _localPath: string,
+        _branch: string,
+        fromHash: string | null,
+        toHash: string
+      ) => Promise.resolve({...fakeDiff(repoId, fromHash, toHash), repositoryBranchId})
+    )
+    mockAnalyze.mockResolvedValue(fakeAiOutput())
+
+    const mainRun = await run(makeJob(projectId))
+
+    testDb.transaction(() => {
+      testDb
+        .prepare('UPDATE repository_branches SET is_active = 0 WHERE repository_id = ?')
+        .run('repo-1')
+      testDb
+        .prepare('UPDATE repository_branches SET is_active = 1 WHERE id = ?')
+        .run('repo-1-feature')
+      testDb
+        .prepare('UPDATE repositories SET branch = ? WHERE id = ?')
+        .run('feature/login-fix', 'repo-1')
+    })()
+
+    const featureRun = await run(makeJob(projectId))
+
+    expect(featureRun.testSetId).not.toBe(mainRun.testSetId)
+
+    const activeSets = testDb
+      .prepare('SELECT analysis_context_id FROM test_sets WHERE project_id = ? AND status = ?')
+      .all(projectId, 'active') as Array<{analysis_context_id: string}>
+    expect(activeSets).toHaveLength(2)
+    expect(new Set(activeSets.map((set) => set.analysis_context_id)).size).toBe(2)
+  })
+
   it('prevents concurrent runs for the same project', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1'})

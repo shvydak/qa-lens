@@ -1,6 +1,6 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import {apiFetch} from '../../api/client.ts'
-import type {RemoteBranch, Repository} from '../../types/index.ts'
+import type {GitHubCredential, RemoteBranch, Repository} from '../../types/index.ts'
 
 export default function RepoForm({
   projectId,
@@ -13,11 +13,40 @@ export default function RepoForm({
 }) {
   const [githubUrl, setGithubUrl] = useState('')
   const [githubToken, setGithubToken] = useState('')
+  const [credentialName, setCredentialName] = useState('')
+  const [credentials, setCredentials] = useState<GitHubCredential[]>([])
+  const [githubCredentialId, setGithubCredentialId] = useState('')
   const [branches, setBranches] = useState<RemoteBranch[]>([])
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [discovering, setDiscovering] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiFetch<GitHubCredential[]>('GET', `/api/projects/${projectId}/repos/credentials`)
+      .then(setCredentials)
+      .catch(() => setCredentials([]))
+  }, [projectId])
+
+  const saveCredential = async () => {
+    if (!credentialName.trim() || !githubToken.trim()) return
+    setError('')
+    try {
+      const credential = await apiFetch<GitHubCredential>(
+        'POST',
+        `/api/projects/${projectId}/repos/credentials`,
+        {name: credentialName.trim(), token: githubToken.trim()}
+      )
+      setCredentials((current) =>
+        [...current, credential].sort((a, b) => a.name.localeCompare(b.name))
+      )
+      setGithubCredentialId(credential.id)
+      setCredentialName('')
+      setGithubToken('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save credential')
+    }
+  }
 
   const discoverBranches = async () => {
     if (!githubUrl.trim()) return
@@ -27,7 +56,11 @@ export default function RepoForm({
       const result = await apiFetch<{branches: RemoteBranch[]}>(
         'POST',
         `/api/projects/${projectId}/repos/discover-branches`,
-        {githubUrl: githubUrl.trim(), githubToken: githubToken.trim() || undefined}
+        {
+          githubUrl: githubUrl.trim(),
+          githubToken: githubToken.trim() || undefined,
+          githubCredentialId: githubCredentialId || undefined,
+        }
       )
       setBranches(result.branches)
       const defaultBranch =
@@ -58,6 +91,7 @@ export default function RepoForm({
       const repo = await apiFetch<Repository>('POST', `/api/projects/${projectId}/repos`, {
         githubUrl: githubUrl.trim(),
         githubToken: githubToken.trim() || undefined,
+        githubCredentialId: githubCredentialId || undefined,
         branchNames: Array.from(selectedBranches),
       })
       onAdd(repo)
@@ -118,6 +152,29 @@ export default function RepoForm({
           </div>
 
           <div>
+            {credentials.length > 0 && (
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Saved access
+                </label>
+                <select
+                  value={githubCredentialId}
+                  onChange={(e) => {
+                    setGithubCredentialId(e.target.value)
+                    setBranches([])
+                    setSelectedBranches(new Set())
+                  }}
+                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors">
+                  <option value="">Use token below or public access</option>
+                  {credentials.map((credential) => (
+                    <option key={credential.id} value={credential.id}>
+                      {credential.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5 mb-1.5">
               <label className="block text-xs font-medium text-gray-400">
                 GitHub token
@@ -141,16 +198,34 @@ export default function RepoForm({
             <input
               type="password"
               value={githubToken}
+              disabled={Boolean(githubCredentialId)}
               onChange={(e) => {
                 setGithubToken(e.target.value)
                 setBranches([])
                 setSelectedBranches(new Set())
               }}
               placeholder="Fine-grained token with repository read access"
-              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
             />
+            {!githubCredentialId && githubToken.trim() && (
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={credentialName}
+                  onChange={(e) => setCredentialName(e.target.value)}
+                  placeholder="Save as: ProBuild GitHub"
+                  className="flex-1 min-w-0 px-3 py-2 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 placeholder-gray-600 text-xs focus:outline-none focus:border-indigo-500/70"
+                />
+                <button
+                  type="button"
+                  onClick={saveCredential}
+                  disabled={!credentialName.trim()}
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700/50 rounded-lg text-gray-300 text-xs transition-colors">
+                  Save token
+                </button>
+              </div>
+            )}
             <p className="mt-1.5 text-xs text-gray-600">
-              Stored locally for future fetches. QA Lens uses it only for read-only Git operations.
+              Save a project credential once, then reuse it for every ProBuild repository.
             </p>
           </div>
 

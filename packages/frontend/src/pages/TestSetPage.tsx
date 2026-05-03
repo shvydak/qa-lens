@@ -20,6 +20,7 @@ export default function TestSetPage() {
   const [loading, setLoading] = useState(true)
   const [marking, setMarking] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [viewMode, setViewMode] = useState<'priority' | 'update'>('priority')
 
   useEffect(() => {
     if (!id) return
@@ -96,11 +97,14 @@ export default function TestSetPage() {
   const canMarkPassed =
     testSet.status === 'active' && failedTests === 0 && doneTests === totalTests && totalTests > 0
 
-  const sortedTests = [...tests].sort((a, b) => {
-    const priorityOrder = {high: 0, medium: 1, low: 2}
-    const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
-    return diff !== 0 ? diff : a.sortOrder - b.sortOrder
-  })
+  const priorityOrder = {high: 0, medium: 1, low: 2}
+  const sortByPriority = (items: Test[]) =>
+    [...items].sort((a, b) => {
+      const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
+      return diff !== 0 ? diff : a.sortOrder - b.sortOrder
+    })
+  const sortedTests = sortByPriority(tests)
+  const runById = new Map((testSet.analysisRuns ?? []).map((run) => [run.id, run]))
 
   return (
     <div className="pb-24">
@@ -290,7 +294,21 @@ export default function TestSetPage() {
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
               Test Cases
             </h2>
-            <div className="flex gap-3 text-xs">
+            <div className="flex items-center gap-3 text-xs">
+              <button
+                onClick={() => setViewMode('priority')}
+                className={`px-2 py-1 rounded ${
+                  viewMode === 'priority' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                }`}>
+                By priority
+              </button>
+              <button
+                onClick={() => setViewMode('update')}
+                className={`px-2 py-1 rounded ${
+                  viewMode === 'update' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                }`}>
+                By update
+              </button>
               <span className="text-emerald-500">
                 {tests.filter((t) => t.status === 'pass').length} pass
               </span>
@@ -301,16 +319,49 @@ export default function TestSetPage() {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            {sortedTests.map((test) => (
-              <TestItem
-                key={test.id}
-                test={test}
-                onStatusChange={(status) => updateTestStatus(test, status)}
-                onDelete={() => deleteTest(test.id)}
-              />
-            ))}
-          </div>
+          {viewMode === 'priority' ? (
+            <div className="space-y-1.5">
+              {sortedTests.map((test) => (
+                <TestItem
+                  key={test.id}
+                  test={test}
+                  metadata={runById.get(test.analysisRunId ?? '')?.label}
+                  onStatusChange={(status) => updateTestStatus(test, status)}
+                  onDelete={() => deleteTest(test.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {(testSet.analysisRuns ?? []).map((run) => {
+                const runTests = sortByPriority(
+                  tests.filter((test) => test.analysisRunId === run.id)
+                )
+                if (runTests.length === 0) return null
+                return (
+                  <section key={run.id}>
+                    <div className="mb-2 rounded-xl border border-gray-800/70 bg-gray-900/60 px-4 py-3">
+                      <div className="text-sm font-medium text-gray-300">{run.label}</div>
+                      <div className="mt-1 text-xs text-gray-600">
+                        {Object.keys(run.commitRanges).length} branch range
+                        {Object.keys(run.commitRanges).length === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {runTests.map((test) => (
+                        <TestItem
+                          key={test.id}
+                          test={test}
+                          onStatusChange={(status) => updateTestStatus(test, status)}
+                          onDelete={() => deleteTest(test.id)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              })}
+            </div>
+          )}
 
           {testSet.status === 'active' && (
             <div className="mt-3">

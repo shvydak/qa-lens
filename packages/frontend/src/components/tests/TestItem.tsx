@@ -64,10 +64,12 @@ export default function TestItem({
   test,
   onStatusChange,
   onDelete,
+  metadata,
 }: {
   test: Test
   onStatusChange: (status: Test['status']) => void
   onDelete: () => void
+  metadata?: string
 }) {
   const title = test.title || test.description
   const hasStructuredDetails =
@@ -101,6 +103,7 @@ export default function TestItem({
             </span>
           )}
           {test.source === 'manual' && <span className="text-xs text-gray-700">manual</span>}
+          {metadata && <span className="text-xs text-gray-600">{metadata}</span>}
         </div>
         <p className={`text-sm font-medium leading-snug ${STATUS_TEXT[test.status]}`}>{title}</p>
 

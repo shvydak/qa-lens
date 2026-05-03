@@ -1,4 +1,5 @@
 import type {RemoteBranch, Repository} from '../../types/index.ts'
+import {useState} from 'react'
 
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return 'never'
@@ -23,6 +24,7 @@ export default function RepoCard({
   onBranchChange,
   onSyncBranches,
   onTrackBranch,
+  onArchiveBranch,
   untrackedBranches = [],
   syncingBranches = false,
 }: {
@@ -32,12 +34,14 @@ export default function RepoCard({
   onBranchChange: (branchId: string) => Promise<void>
   onSyncBranches: () => Promise<void>
   onTrackBranch: (branchName: string) => Promise<void>
+  onArchiveBranch: (branchId: string) => Promise<void>
   untrackedBranches?: RemoteBranch[]
   syncingBranches?: boolean
 }) {
   const analysisCursor = repo.analysisCursor ?? (repo.lastAnalyzedCommitHash ? 'baseline' : 'none')
   const hasNew = (repo.unanalyzedCount ?? 0) > 0
   const activeBranch = repo.activeBranch
+  const [showBranches, setShowBranches] = useState(false)
 
   return (
     <div className="group flex items-start gap-3 p-4 bg-gray-900 border border-gray-800/50 rounded-xl hover:border-gray-700/60 transition-colors">
@@ -60,18 +64,10 @@ export default function RepoCard({
           <span className="font-mono text-xs text-gray-300 truncate" title={repo.localPath}>
             {trimPathLeft(repo.localPath)}
           </span>
-          {repo.sourceType === 'managed_clone' && (
-            <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400">
-              managed
-            </span>
-          )}
-          {repo.hasAuthToken && (
-            <span
-              title="GitHub token configured for read-only access"
-              className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded text-indigo-300">
-              token
-            </span>
-          )}
+          <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400">
+            GitHub connected
+          </span>
+          {repo.hasAuthToken && <span className="text-[10px] text-indigo-300">private access</span>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -95,7 +91,7 @@ export default function RepoCard({
           )}
         </div>
 
-        {repo.branches.length > 0 && (
+        {showBranches && repo.branches.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {repo.branches.map((branch) => {
               const statusClass =
@@ -117,13 +113,21 @@ export default function RepoCard({
                   className={`text-[10px] px-1.5 py-0.5 border rounded font-mono ${statusClass}`}>
                   {branch.name}
                   {branch.status !== 'active' ? ` · ${branch.status}` : ''}
+                  {!branch.isActive && branch.status !== 'archived' && (
+                    <button
+                      type="button"
+                      onClick={() => onArchiveBranch(branch.id)}
+                      className="ml-1 text-gray-500 hover:text-red-300">
+                      archive
+                    </button>
+                  )}
                 </span>
               )
             })}
           </div>
         )}
 
-        {untrackedBranches.length > 0 && (
+        {showBranches && untrackedBranches.length > 0 && (
           <div className="mt-2 flex items-center gap-2">
             <select
               defaultValue=""
@@ -178,10 +182,19 @@ export default function RepoCard({
 
       <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
-          onClick={onSyncBranches}
+          onClick={async () => {
+            setShowBranches(true)
+            await onSyncBranches()
+          }}
           disabled={syncingBranches || !repo.githubUrl}
-          title="Sync branches from remote"
-          className="p-1.5 text-gray-500 hover:text-emerald-400 hover:bg-emerald-400/10 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all">
+          title="Manage branches"
+          className="px-2 py-1.5 text-xs text-gray-500 hover:text-emerald-300 hover:bg-emerald-400/10 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all">
+          Branches
+        </button>
+        <button
+          onClick={onFetch}
+          title="Refresh commits now"
+          className="p-1.5 text-gray-500 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all">
           <svg
             className={syncingBranches ? 'animate-spin' : ''}
             width="13"
@@ -192,26 +205,6 @@ export default function RepoCard({
               d="M10.8 4.2A4.8 4.8 0 0 0 2 3.5M2 1.2v2.3h2.3M2.2 8.8A4.8 4.8 0 0 0 11 9.5M11 11.8V9.5H8.7"
               stroke="currentColor"
               strokeWidth="1.3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <button
-          onClick={onFetch}
-          title="Fetch"
-          className="p-1.5 text-gray-500 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <path
-              d="M6.5 1.5A5 5 0 1 1 2 9"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
-            <path
-              d="M1 6.5V9.5H4"
-              stroke="currentColor"
-              strokeWidth="1.4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />

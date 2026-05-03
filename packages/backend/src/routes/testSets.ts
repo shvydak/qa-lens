@@ -9,21 +9,48 @@ testSetsRouter.get('/', (req, res) => {
   const {projectId} = req.params as {projectId: string}
   const db = getDb()
   const rows = db
-    .prepare('SELECT * FROM test_sets WHERE project_id = ? ORDER BY created_at DESC')
+    .prepare(
+      `
+      SELECT ts.*, ac.branch_signature
+      FROM test_sets ts
+      LEFT JOIN analysis_contexts ac ON ac.id = ts.analysis_context_id
+      WHERE ts.project_id = ?
+      ORDER BY ts.created_at DESC
+    `
+    )
     .all(projectId)
   res.json({data: rows.map(toDto)})
 })
 
 testSetActionsRouter.get('/:testSetId', (req, res) => {
   const db = getDb()
-  const testSet = db.prepare('SELECT * FROM test_sets WHERE id = ?').get(req.params.testSetId)
+  const testSet = db
+    .prepare(
+      `
+      SELECT ts.*, ac.branch_signature
+      FROM test_sets ts
+      LEFT JOIN analysis_contexts ac ON ac.id = ts.analysis_context_id
+      WHERE ts.id = ?
+    `
+    )
+    .get(req.params.testSetId)
   if (!testSet) return res.status(404).json({error: 'Test set not found'})
 
   const tests = db
     .prepare('SELECT * FROM tests WHERE test_set_id = ? ORDER BY sort_order, rowid')
     .all(req.params.testSetId)
 
-  return res.json({data: {...toDto(testSet), tests: tests.map(testToDto)}})
+  const analysisRuns = db
+    .prepare('SELECT * FROM analysis_runs WHERE test_set_id = ? ORDER BY created_at, rowid')
+    .all(req.params.testSetId)
+
+  return res.json({
+    data: {
+      ...toDto(testSet),
+      tests: tests.map(testToDto),
+      analysisRuns: analysisRuns.map(runToDto),
+    },
+  })
 })
 
 testSetActionsRouter.patch('/:testSetId', (req, res) => {
@@ -72,6 +99,8 @@ function toDto(row: unknown) {
   return {
     id: r.id,
     projectId: r.project_id,
+    analysisContextId: r.analysis_context_id ?? null,
+    branchSignature: r.branch_signature ?? null,
     name: r.name,
     status: r.status,
     commitRanges,
@@ -153,9 +182,24 @@ function testToDto(row: unknown) {
     expectedResult: r.expected_result ?? null,
     risk: r.risk ?? null,
     technicalContext: r.technical_context ?? null,
+    analysisRunId: r.analysis_run_id ?? null,
+    repositoryBranchId: r.repository_branch_id ?? null,
     status: r.status,
     source: r.source,
     sortOrder: r.sort_order,
+  }
+}
+
+function runToDto(row: unknown) {
+  const r = row as Record<string, unknown>
+  return {
+    id: r.id,
+    testSetId: r.test_set_id,
+    label: r.label,
+    commitRanges:
+      typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges,
+    aiSummary: r.ai_summary ?? null,
+    createdAt: r.created_at,
   }
 }
 

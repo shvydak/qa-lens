@@ -90,6 +90,29 @@ describe('POST /api/repos/:repoId/branches', () => {
 
 const app = createTestApp()
 
+describe('POST /api/projects/:projectId/repos/credentials', () => {
+  it('creates a project credential without returning the token', async () => {
+    const projectId = seedProject(testDb)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos/credentials`)
+      .send({name: 'ProBuild GitHub', token: 'secret-token'})
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({
+      projectId,
+      name: 'ProBuild GitHub',
+      hasToken: true,
+    })
+    expect(res.body.data.token).toBeUndefined()
+
+    const row = testDb
+      .prepare('SELECT token FROM github_credentials WHERE id = ?')
+      .get(res.body.data.id) as {token: string} | undefined
+    expect(row?.token).toBe('secret-token')
+  })
+})
+
 describe('POST /api/projects/:projectId/repos/discover-branches', () => {
   it('passes the optional GitHub token to branch discovery', async () => {
     const projectId = seedProject(testDb)
@@ -104,6 +127,24 @@ describe('POST /api/projects/:projectId/repos/discover-branches', () => {
     expect(gitMocks.listRemoteBranches).toHaveBeenCalledWith(
       'https://github.com/org/repo',
       'secret-token'
+    )
+  })
+
+  it('uses a saved credential for branch discovery', async () => {
+    const projectId = seedProject(testDb)
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-1', projectId, 'ProBuild GitHub', 'saved-token')
+    gitMocks.listRemoteBranches.mockResolvedValue([{name: 'staging', commitHash: 'staging-hash'}])
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos/discover-branches`)
+      .send({githubUrl: 'https://github.com/org/repo', githubCredentialId: 'cred-1'})
+
+    expect(res.status).toBe(200)
+    expect(gitMocks.listRemoteBranches).toHaveBeenCalledWith(
+      'https://github.com/org/repo',
+      'saved-token'
     )
   })
 })
@@ -140,6 +181,34 @@ describe('POST /api/projects/:projectId/repos', () => {
       .prepare('SELECT github_token FROM repositories WHERE id = ?')
       .get(res.body.data.id) as {github_token: string} | undefined
     expect(row?.github_token).toBe('secret-token')
+  })
+
+  it('uses a saved credential when creating a managed clone', async () => {
+    const projectId = seedProject(testDb)
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-1', projectId, 'ProBuild GitHub', 'saved-token')
+    gitMocks.cloneRepository.mockResolvedValue(undefined)
+    gitMocks.fetchOrigin.mockResolvedValue(undefined)
+    gitMocks.checkoutBranch.mockResolvedValue(undefined)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({
+        githubUrl: 'https://github.com/org/repo',
+        githubCredentialId: 'cred-1',
+        branchNames: ['staging'],
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({githubCredentialId: 'cred-1', hasAuthToken: true})
+    expect(res.body.data.githubToken).toBeUndefined()
+    expect(gitMocks.cloneRepository).toHaveBeenCalledWith(
+      'https://github.com/org/repo',
+      expect.any(String),
+      'saved-token'
+    )
+    expect(gitMocks.fetchOrigin).toHaveBeenCalledWith(expect.any(String), 'staging', 'saved-token')
   })
 })
 
@@ -180,6 +249,20 @@ describe('PATCH /api/repos/:repoId/active-branch', () => {
 
     expect(res.status).toBe(400)
     expect(res.body.error).toBe('Cannot activate a branch that is not active in remote')
+  })
+})
+
+describe('PATCH /api/repos/:repoId/branches/:branchId', () => {
+  it('does not archive the active branch', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+
+    const res = await request(app)
+      .patch('/api/repos/repo-1/branches/repo-1-branch')
+      .send({status: 'archived'})
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('Cannot archive the active branch')
   })
 })
 

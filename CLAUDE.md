@@ -88,6 +88,8 @@ npm workspaces monorepo with two packages:
 
 **Repository branches:** `repository_branches` is the analysis target layer; each branch has its own `status`, `is_active`, `last_fetched_at`, and `last_analyzed_commit_hash`.
 
+**GitHub credentials:** `github_credentials` stores reusable project-level PATs; repository responses must expose only `hasAuthToken`/`githubCredentialId`, never token values.
+
 **DB row mapping:** better-sqlite3 returns raw schema keys (`snake_case`); map rows to camelCase domain/API objects (e.g. `repoFromRow`) before using `Repository` types or service logic.
 
 **IDs:** `src/utils/ulid.ts` — custom time-sortable ID generator, no external dependency.
@@ -98,11 +100,19 @@ npm workspaces monorepo with two packages:
 
 **Analysis cursor:** `commit_ranges` is keyed by `repositoryBranchId` for new analyses; keep legacy `repoId` fallback only for old data. Passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each tracked branch.
 
+**Analysis contexts:** `analysis_contexts` represents a project branch-combination (`branch_signature`); active test sets are scoped by `projectId + analysis_context_id`, not just project.
+
+**Analysis runs:** Each initial/update analysis inserts an `analysis_runs` row; AI-created tests store `analysis_run_id` so the UI can group tests by update while still sorting by priority.
+
 **Read-only Git:** GitHub operations must remain read-only (`ls-remote`, `clone`, `fetch`, `log`, `diff`, `rev-parse`); never add `push`, `commit`, `merge`, `rebase`, `reset`, or remote delete flows.
 
 **GitHub tokens:** PATs are stored locally for MVP and passed to Git-over-HTTPS via Basic auth (`x-access-token:<token>`); API responses expose only `hasAuthToken`, never the token.
 
 **Branch sync:** `POST /api/repos/:repoId/sync-branches` marks tracked branches `active`/`missing` and returns untracked remote branches; old analysis history must remain even when a remote branch disappears.
+
+**SQLite migrations:** For columns added via `ensureColumn()`, create dependent indexes after `ensureColumn()` in `runMigrations()`, not in the initial `schema.sql` exec.
+
+**Managed repo storage:** Keep `packages/managed-repos/` ignored by git and ESLint; cloned customer repos are input data, not QA Lens source.
 
 **Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 

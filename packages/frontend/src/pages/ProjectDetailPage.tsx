@@ -30,7 +30,16 @@ export default function ProjectDetailPage() {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const activeTestSet = testSets.find((testSet) => testSet.status === 'active')
+  const activeBranchSignature = repos
+    .map((repo) => repo.activeBranch?.id)
+    .filter(Boolean)
+    .sort()
+    .join('|')
+  const activeTestSet = testSets.find(
+    (testSet) =>
+      testSet.status === 'active' &&
+      (!testSet.branchSignature || testSet.branchSignature === activeBranchSignature)
+  )
   const hasUnanalyzedCommits = repos.some((repo) => (repo.unanalyzedCount ?? 0) > 0)
   const analysisDisabled = !activeTestSet && !hasUnanalyzedCommits
   const analysisDisabledReason = 'There are no new commits to analyze'
@@ -165,6 +174,17 @@ export default function ProjectDetailPage() {
     }))
   }
 
+  const archiveRepoBranch = async (repoId: string, branchId: string) => {
+    const updated = await apiFetch<Repository>(
+      'PATCH',
+      `/api/repos/${repoId}/branches/${branchId}`,
+      {
+        status: 'archived',
+      }
+    )
+    setRepos((current) => current.map((repo) => (repo.id === repoId ? updated : repo)))
+  }
+
   if (loading) {
     return (
       <div className="p-8 space-y-4">
@@ -285,6 +305,7 @@ export default function ProjectDetailPage() {
                   onBranchChange={(branchId) => changeRepoBranch(repo.id, branchId)}
                   onSyncBranches={() => syncRepoBranches(repo.id)}
                   onTrackBranch={(branchName) => trackRepoBranch(repo.id, branchName)}
+                  onArchiveBranch={(branchId) => archiveRepoBranch(repo.id, branchId)}
                   untrackedBranches={untrackedBranchesByRepo[repo.id]}
                   syncingBranches={syncingRepoId === repo.id}
                 />

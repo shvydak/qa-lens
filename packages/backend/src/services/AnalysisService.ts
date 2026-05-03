@@ -18,6 +18,7 @@ type CommitRanges = Record<string, {from: string | null; to: string}>
 interface ActiveTestSetRow {
   id: string
   name: string
+  analysis_context_id: string | null
   commit_ranges: string
   ai_summary: string | null
   regressions: string | null
@@ -69,18 +70,34 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   if (repoTargets.some((target) => !target.branch)) {
     throw new Error('Every repository needs an active branch before analysis can run')
   }
+  const context = getOrCreateAnalysisContext(
+    job.projectId,
+    repoTargets.map(({branch}) => branch!)
+  )
 
-  const activeTestSet = db
-    .prepare(
+  const activeTestSet =
+    (db
+      .prepare(
+        `
+        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts
+        FROM test_sets
+        WHERE project_id = ? AND analysis_context_id = ? AND status = 'active'
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1
       `
-      SELECT id, name, commit_ranges, ai_summary, regressions, cross_impacts
-      FROM test_sets
-      WHERE project_id = ? AND status = 'active'
-      ORDER BY created_at DESC, rowid DESC
-      LIMIT 1
-    `
-    )
-    .get(job.projectId) as ActiveTestSetRow | undefined
+      )
+      .get(job.projectId, context.id) as ActiveTestSetRow | undefined) ??
+    (db
+      .prepare(
+        `
+        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts
+        FROM test_sets
+        WHERE project_id = ? AND analysis_context_id IS NULL AND status = 'active'
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1
+      `
+      )
+      .get(job.projectId) as ActiveTestSetRow | undefined)
   const activeCommitRanges = activeTestSet
     ? (JSON.parse(activeTestSet.commit_ranges) as CommitRanges)
     : null
@@ -135,6 +152,9 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       : `Analysis · ${dateStr}`
 
   const testSetId = ulid()
+  const analysisRunId = ulid()
+  const analysisRunLabel = activeTestSet ? `Update ${dateStr}` : `Initial analysis ${dateStr}`
+  const singleRepositoryBranchId = diffs.length === 1 ? diffs[0].repositoryBranchId : null
 
   if (activeTestSet) {
     const nextSortOrder = (
@@ -150,6 +170,7 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
         `
         UPDATE test_sets
         SET commit_ranges = ?,
+            analysis_context_id = ?,
             ai_summary = ?,
             regressions = ?,
             cross_impacts = ?
@@ -157,6 +178,7 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       `
       ).run(
         JSON.stringify(commitRanges),
+        context.id,
         appendSummary(activeTestSet.ai_summary, aiOutput.summary),
         JSON.stringify(
           mergeStringArrays(parseStringArray(activeTestSet.regressions), aiOutput.regressions)
@@ -170,7 +192,20 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
         activeTestSet.id
       )
 
-      insertAiTests(activeTestSet.id, aiOutput.tests, nextSortOrder)
+      insertAnalysisRun(
+        analysisRunId,
+        activeTestSet.id,
+        analysisRunLabel,
+        commitRanges,
+        aiOutput.summary
+      )
+      insertAiTests(
+        activeTestSet.id,
+        aiOutput.tests,
+        nextSortOrder,
+        analysisRunId,
+        singleRepositoryBranchId
+      )
     })()
 
     return {testSetId: activeTestSet.id}
@@ -179,12 +214,22 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   db.transaction(() => {
     db.prepare(
       `
-      INSERT INTO test_sets (id, project_id, name, commit_ranges, ai_summary, regressions, cross_impacts)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO test_sets (
+        id,
+        project_id,
+        analysis_context_id,
+        name,
+        commit_ranges,
+        ai_summary,
+        regressions,
+        cross_impacts
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       testSetId,
       job.projectId,
+      context.id,
       name,
       JSON.stringify(commitRanges),
       aiOutput.summary,
@@ -192,7 +237,8 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       JSON.stringify(aiOutput.cross_repo_impacts)
     )
 
-    insertAiTests(testSetId, aiOutput.tests)
+    insertAnalysisRun(analysisRunId, testSetId, analysisRunLabel, commitRanges, aiOutput.summary)
+    insertAiTests(testSetId, aiOutput.tests, 0, analysisRunId, singleRepositoryBranchId)
   })()
 
   return {testSetId}
@@ -201,7 +247,9 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
 function insertAiTests(
   testSetId: string,
   tests: AIAnalysisOutput['tests'],
-  sortOrderOffset = 0
+  sortOrderOffset = 0,
+  analysisRunId: string | null = null,
+  repositoryBranchId: string | null = null
 ): void {
   const db = getDb()
   const insertTest = db.prepare(`
@@ -218,9 +266,11 @@ function insertAiTests(
       expected_result,
       risk,
       technical_context,
+      analysis_run_id,
+      repository_branch_id,
       sort_order
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   tests.forEach((t, i) => {
@@ -237,9 +287,58 @@ function insertAiTests(
       t.expected_result || null,
       t.risk || null,
       t.technical_context || null,
+      analysisRunId,
+      repositoryBranchId,
       sortOrderOffset + i
     )
   })
+}
+
+function insertAnalysisRun(
+  id: string,
+  testSetId: string,
+  label: string,
+  commitRanges: CommitRanges,
+  aiSummary: string
+): void {
+  getDb()
+    .prepare(
+      `
+      INSERT INTO analysis_runs (id, test_set_id, label, commit_ranges, ai_summary)
+      VALUES (?, ?, ?, ?, ?)
+    `
+    )
+    .run(id, testSetId, label, JSON.stringify(commitRanges), aiSummary)
+}
+
+function getOrCreateAnalysisContext(
+  projectId: string,
+  branches: RepositoryBranch[]
+): {id: string; branchSignature: string} {
+  const db = getDb()
+  const branchIds = branches.map((branch) => branch.id).sort()
+  const branchSignature = branchIds.join('|')
+  const existing = db
+    .prepare(
+      'SELECT id, branch_signature FROM analysis_contexts WHERE project_id = ? AND branch_signature = ?'
+    )
+    .get(projectId, branchSignature) as {id: string; branch_signature: string} | undefined
+
+  if (existing) return {id: existing.id, branchSignature: existing.branch_signature}
+
+  const id = ulid()
+  const name = branches
+    .map((branch) => branch.name)
+    .sort()
+    .join(' · ')
+  db.prepare(
+    `
+    INSERT INTO analysis_contexts (id, project_id, name, branch_signature, branch_ids)
+    VALUES (?, ?, ?, ?, ?)
+  `
+  ).run(id, projectId, name || 'Default context', branchSignature, JSON.stringify(branchIds))
+
+  return {id, branchSignature}
 }
 
 function appendSummary(current: string | null, next: string): string {

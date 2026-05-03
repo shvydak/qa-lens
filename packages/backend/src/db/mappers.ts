@@ -13,6 +13,7 @@ export function repoFromRow(row: unknown): Repository {
     localPath: r.local_path as string,
     githubUrl: (r.github_url as string | null) ?? null,
     githubToken: (r.github_token as string | null) ?? null,
+    githubCredentialId: (r.github_credential_id as string | null) ?? null,
     hasAuthToken: Boolean(r.github_token),
     sourceType: ((r.source_type as string | null) ?? 'local_path') as Repository['sourceType'],
     branch: r.branch as string,
