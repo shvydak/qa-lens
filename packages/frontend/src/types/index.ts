@@ -45,6 +45,14 @@ export interface RemoteBranch {
   commitHash: string
 }
 
+export interface ChecklistCounts {
+  total: number
+  pass: number
+  fail: number
+  skip: number
+  notTested: number
+}
+
 export interface TestSet {
   id: string
   projectId: string
@@ -61,6 +69,7 @@ export interface TestSet {
   completedAt: string | null
   analysisRunCount?: number
   latestAnalysisRunAt?: string | null
+  checklistCounts?: ChecklistCounts
   tests?: Test[]
   analysisRuns?: AnalysisRun[]
 }

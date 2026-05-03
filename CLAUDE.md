@@ -122,6 +122,10 @@ npm workspaces monorepo with two packages:
 
 **Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
 
+**TestSet DTO / `checklistCounts`:** `GET /api/projects/:id/test-sets` adds per-row aggregates via SQL subqueries on `tests`; `GET /api/test-sets/:id` derives counts from loaded tests; `PATCH` (and other `SELECT *` rows) uses `fetchChecklistCounts` in `routes/testSets.ts` when list-query aliases are absent.
+
+**`Array#map` + DTO mappers:** If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
+
 ### Frontend
 
 **Routing:** Three pages via React Router v6 — `/`, `/projects/:id`, `/test-sets/:id`.
@@ -142,7 +146,7 @@ npm workspaces monorepo with two packages:
 
 **Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
 
-**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`); UI may group history by `analysisContextId` / `branchSignature`.
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), **`checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. **`TestSetCard`** renders the segmented checklist bar; **`ProjectDetailPage`** passes **`executionUpdating`** when `analysisStatus.running && activeTestSet?.id === ts.id`.
 
 ## Environment
 

@@ -1,5 +1,6 @@
+import type {CSSProperties} from 'react'
 import {useNavigate} from 'react-router-dom'
-import type {TestSet} from '../../types/index.ts'
+import type {ChecklistCounts, TestSet} from '../../types/index.ts'
 
 const STATUS_STYLES = {
   active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
@@ -16,9 +17,15 @@ const STATUS_LABELS = {
 interface TestSetCardProps {
   testSet: TestSet
   showTargets?: boolean
+  /** True while AI analysis may be mutating this test set’s checklist */
+  executionUpdating?: boolean
 }
 
-export default function TestSetCard({testSet, showTargets = true}: TestSetCardProps) {
+export default function TestSetCard({
+  testSet,
+  showTargets = true,
+  executionUpdating = false,
+}: TestSetCardProps) {
   const navigate = useNavigate()
 
   const latestDate = testSet.latestAnalysisRunAt ?? testSet.createdAt
@@ -38,6 +45,10 @@ export default function TestSetCard({testSet, showTargets = true}: TestSetCardPr
         ? '1 analysis run'
         : null
 
+  const counts = testSet.checklistCounts
+  const checklistLine = counts ? formatChecklistLine(counts) : null
+  const checklistAria = counts ? formatChecklistAria(counts) : undefined
+
   return (
     <button
       onClick={() => navigate(`/test-sets/${testSet.id}`)}
@@ -56,6 +67,28 @@ export default function TestSetCard({testSet, showTargets = true}: TestSetCardPr
             {updateLabel && <span>{updateLabel}</span>}
             <span>{date}</span>
           </div>
+          {executionUpdating ? (
+            <div
+              className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-800"
+              aria-label="Checklist is being updated by analysis">
+              <div className="h-full w-full animate-pulse rounded-full bg-indigo-500/35" />
+            </div>
+          ) : counts && counts.total > 0 ? (
+            <div className="mt-2.5 space-y-1.5">
+              <div
+                className="flex h-1.5 w-full overflow-hidden rounded-full bg-gray-800"
+                role="img"
+                aria-label={checklistAria}>
+                <ChecklistSegments counts={counts} />
+              </div>
+              <p className="text-[11px] leading-snug text-gray-500">
+                <span className="text-gray-500">Cases </span>
+                <ChecklistSummaryText counts={counts} line={checklistLine ?? ''} />
+              </p>
+            </div>
+          ) : counts && counts.total === 0 ? (
+            <p className="mt-2.5 text-[11px] text-gray-600">No cases yet</p>
+          ) : null}
         </div>
         <svg
           width="14"
@@ -126,4 +159,78 @@ function shortHash(hash: string | null): string | null {
 function repoLabel(path: string): string {
   const parts = path.split('/').filter(Boolean)
   return parts[parts.length - 1] ?? path
+}
+
+function formatChecklistLine(c: ChecklistCounts): string {
+  const parts: string[] = []
+  if (c.pass > 0) parts.push(`${c.pass} passed`)
+  if (c.fail > 0) parts.push(`${c.fail} failed`)
+  if (c.skip > 0) parts.push(`${c.skip} skipped`)
+  if (c.notTested > 0) parts.push(`${c.notTested} not run`)
+  if (parts.length === 0 && c.total > 0) parts.push(`${c.total} cases`)
+  return parts.join(' · ')
+}
+
+function formatChecklistAria(c: ChecklistCounts): string {
+  return `Checklist: ${c.pass} passed, ${c.fail} failed, ${c.skip} skipped, ${c.notTested} not run, ${c.total} total`
+}
+
+function segmentStyle(weight: number): CSSProperties {
+  return {flexGrow: weight, flexShrink: 0, flexBasis: 0, minWidth: weight > 0 ? 2 : 0}
+}
+
+function ChecklistSegments({counts}: {counts: ChecklistCounts}) {
+  const {pass, fail, skip, notTested} = counts
+  return (
+    <>
+      {pass > 0 && (
+        <span
+          className="h-full bg-emerald-500/85"
+          style={segmentStyle(pass)}
+          title={`${pass} passed`}
+        />
+      )}
+      {fail > 0 && (
+        <span
+          className="h-full bg-red-500/80"
+          style={segmentStyle(fail)}
+          title={`${fail} failed`}
+        />
+      )}
+      {skip > 0 && (
+        <span
+          className="h-full bg-amber-500/70"
+          style={segmentStyle(skip)}
+          title={`${skip} skipped`}
+        />
+      )}
+      {notTested > 0 && (
+        <span
+          className="h-full bg-gray-600/90"
+          style={segmentStyle(notTested)}
+          title={`${notTested} not run`}
+        />
+      )}
+    </>
+  )
+}
+
+function ChecklistSummaryText({counts, line}: {counts: ChecklistCounts; line: string}) {
+  if (counts.fail === 0) {
+    return <span className="tabular-nums text-gray-400">{line}</span>
+  }
+  const failToken = `${counts.fail} failed`
+  const idx = line.indexOf(failToken)
+  if (idx < 0) {
+    return <span className="tabular-nums text-gray-400">{line}</span>
+  }
+  const before = line.slice(0, idx)
+  const after = line.slice(idx + failToken.length)
+  return (
+    <span className="tabular-nums">
+      {before && <span className="text-gray-400">{before}</span>}
+      <span className="text-red-400/90">{failToken}</span>
+      {after && <span className="text-gray-400">{after}</span>}
+    </span>
+  )
 }

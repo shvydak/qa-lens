@@ -15,7 +15,12 @@ testSetsRouter.get('/', (req, res) => {
         ts.*,
         ac.branch_signature,
         COUNT(ar.id) AS analysis_run_count,
-        MAX(ar.created_at) AS latest_analysis_run_at
+        MAX(ar.created_at) AS latest_analysis_run_at,
+        (SELECT COUNT(*) FROM tests t WHERE t.test_set_id = ts.id) AS checklist_total,
+        (SELECT COUNT(*) FROM tests t WHERE t.test_set_id = ts.id AND t.status = 'pass') AS checklist_pass,
+        (SELECT COUNT(*) FROM tests t WHERE t.test_set_id = ts.id AND t.status = 'fail') AS checklist_fail,
+        (SELECT COUNT(*) FROM tests t WHERE t.test_set_id = ts.id AND t.status = 'skip') AS checklist_skip,
+        (SELECT COUNT(*) FROM tests t WHERE t.test_set_id = ts.id AND t.status = 'not_tested') AS checklist_not_tested
       FROM test_sets ts
       LEFT JOIN analysis_contexts ac ON ac.id = ts.analysis_context_id
       LEFT JOIN analysis_runs ar ON ar.test_set_id = ts.id
@@ -25,7 +30,7 @@ testSetsRouter.get('/', (req, res) => {
     `
     )
     .all(projectId)
-  res.json({data: rows.map(toDto)})
+  res.json({data: rows.map((row) => toDto(row))})
 })
 
 testSetActionsRouter.get('/:testSetId', (req, res) => {
@@ -50,10 +55,12 @@ testSetActionsRouter.get('/:testSetId', (req, res) => {
     .prepare('SELECT * FROM analysis_runs WHERE test_set_id = ? ORDER BY created_at, rowid')
     .all(req.params.testSetId)
 
+  const testsDto = tests.map(testToDto)
+  const checklistCounts = tallyChecklistFromTests(testsDto)
   return res.json({
     data: {
-      ...toDto(testSet),
-      tests: tests.map(testToDto),
+      ...toDto(testSet, {checklistCounts}),
+      tests: testsDto,
       analysisRuns: analysisRuns.map(runToDto),
     },
   })
@@ -85,7 +92,9 @@ testSetActionsRouter.patch('/:testSetId', (req, res) => {
   }
 
   const updated = db.prepare('SELECT * FROM test_sets WHERE id = ?').get(req.params.testSetId)
-  return res.json({data: toDto(updated)})
+  return res.json({
+    data: toDto(updated, {checklistCounts: fetchChecklistCounts(db, req.params.testSetId)}),
+  })
 })
 
 testSetActionsRouter.delete('/:testSetId', (req, res) => {
@@ -98,7 +107,12 @@ testSetActionsRouter.delete('/:testSetId', (req, res) => {
   }
 })
 
-function toDto(row: unknown) {
+function toDto(
+  row: unknown,
+  opts?: {
+    checklistCounts?: ChecklistCounts
+  }
+) {
   const r = row as Record<string, unknown>
   const commitRanges =
     typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges
@@ -126,7 +140,68 @@ function toDto(row: unknown) {
     completedAt: r.completed_at ?? null,
     analysisRunCount: Number(r.analysis_run_count ?? 0),
     latestAnalysisRunAt: r.latest_analysis_run_at ?? null,
+    checklistCounts: opts?.checklistCounts ?? checklistCountsFromRow(r),
   }
+}
+
+type ChecklistCounts = {total: number; pass: number; fail: number; skip: number; notTested: number}
+
+function checklistCountsFromRow(r: Record<string, unknown>): ChecklistCounts {
+  if (r.checklist_total !== undefined && r.checklist_total !== null) {
+    return {
+      total: Number(r.checklist_total),
+      pass: Number(r.checklist_pass ?? 0),
+      fail: Number(r.checklist_fail ?? 0),
+      skip: Number(r.checklist_skip ?? 0),
+      notTested: Number(r.checklist_not_tested ?? 0),
+    }
+  }
+  return fetchChecklistCounts(getDb(), r.id as string)
+}
+
+function fetchChecklistCounts(db: ReturnType<typeof getDb>, testSetId: string): ChecklistCounts {
+  const row = db
+    .prepare(
+      `
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END) AS pass,
+        SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) AS fail,
+        SUM(CASE WHEN status = 'skip' THEN 1 ELSE 0 END) AS skip,
+        SUM(CASE WHEN status = 'not_tested' THEN 1 ELSE 0 END) AS not_tested
+      FROM tests
+      WHERE test_set_id = ?
+    `
+    )
+    .get(testSetId) as {
+    total: number
+    pass: number | null
+    fail: number | null
+    skip: number | null
+    not_tested: number | null
+  }
+  return {
+    total: Number(row?.total ?? 0),
+    pass: Number(row?.pass ?? 0),
+    fail: Number(row?.fail ?? 0),
+    skip: Number(row?.skip ?? 0),
+    notTested: Number(row?.not_tested ?? 0),
+  }
+}
+
+function tallyChecklistFromTests(tests: Array<{status: unknown}>) {
+  let pass = 0
+  let fail = 0
+  let skip = 0
+  let notTested = 0
+  for (const t of tests) {
+    const s = t.status as string
+    if (s === 'pass') pass += 1
+    else if (s === 'fail') fail += 1
+    else if (s === 'skip') skip += 1
+    else notTested += 1
+  }
+  return {total: tests.length, pass, fail, skip, notTested}
 }
 
 function getCommitTargets(commitRanges: Record<string, {from: string | null; to: string}>) {

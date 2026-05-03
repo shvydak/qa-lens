@@ -69,6 +69,33 @@ describe('PATCH /api/test-sets/:id', () => {
     expect(res.body.data.name).toBe('New Name')
     expect(res.body.data.status).toBe('active')
   })
+
+  it('response includes checklistCounts from DB when row has no list-query aggregates', async () => {
+    const projectId = seedProject(testDb)
+    const testSetId = seedTestSet(testDb, projectId, {id: 'ts-patch-counts'})
+    testDb
+      .prepare(
+        `INSERT INTO tests (id, test_set_id, description, priority, status) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run('t-p1', testSetId, 'One', 'high', 'pass')
+    testDb
+      .prepare(
+        `INSERT INTO tests (id, test_set_id, description, priority, status) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run('t-p2', testSetId, 'Two', 'medium', 'not_tested')
+
+    const res = await request(app).patch(`/api/test-sets/${testSetId}`).send({name: 'Renamed'})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.name).toBe('Renamed')
+    expect(res.body.data.checklistCounts).toEqual({
+      total: 2,
+      pass: 1,
+      fail: 0,
+      skip: 0,
+      notTested: 1,
+    })
+  })
 })
 
 describe('DELETE /api/test-sets/:id', () => {
@@ -136,6 +163,48 @@ describe('GET /api/projects/:projectId/test-sets', () => {
     expect(res.status).toBe(200)
     expect(res.body.data).toEqual([])
   })
+
+  it('includes zero checklistCounts when test set has no tests', async () => {
+    const projectId = seedProject(testDb)
+    const testSetId = seedTestSet(testDb, projectId, {id: 'ts-empty-checklist'})
+
+    const res = await request(app).get(`/api/projects/${projectId}/test-sets`)
+
+    expect(res.status).toBe(200)
+    const row = res.body.data.find((x: {id: string}) => x.id === testSetId)
+    expect(row.checklistCounts).toEqual({
+      total: 0,
+      pass: 0,
+      fail: 0,
+      skip: 0,
+      notTested: 0,
+    })
+  })
+
+  it('includes checklistCounts aggregated from tests', async () => {
+    const projectId = seedProject(testDb)
+    const testSetId = seedTestSet(testDb, projectId, {id: 'ts-checklist'})
+    const ins = testDb.prepare(
+      `INSERT INTO tests (id, test_set_id, description, priority, status) VALUES (?, ?, ?, ?, ?)`
+    )
+    ins.run('tc-1', testSetId, 'A', 'high', 'pass')
+    ins.run('tc-2', testSetId, 'B', 'medium', 'pass')
+    ins.run('tc-3', testSetId, 'C', 'medium', 'fail')
+    ins.run('tc-4', testSetId, 'D', 'low', 'skip')
+    ins.run('tc-5', testSetId, 'E', 'low', 'not_tested')
+
+    const res = await request(app).get(`/api/projects/${projectId}/test-sets`)
+
+    expect(res.status).toBe(200)
+    const row = res.body.data.find((x: {id: string}) => x.id === testSetId)
+    expect(row.checklistCounts).toEqual({
+      total: 5,
+      pass: 2,
+      fail: 1,
+      skip: 1,
+      notTested: 1,
+    })
+  })
 })
 
 describe('GET /api/test-sets/:id', () => {
@@ -180,6 +249,13 @@ describe('GET /api/test-sets/:id', () => {
     const res = await request(app).get(`/api/test-sets/${testSetId}`)
 
     expect(res.status).toBe(200)
+    expect(res.body.data.checklistCounts).toEqual({
+      total: 1,
+      pass: 0,
+      fail: 0,
+      skip: 0,
+      notTested: 1,
+    })
     expect(res.body.data.analysisRuns).toEqual([
       expect.objectContaining({
         id: 'run-1',

@@ -401,7 +401,12 @@ export default function ProjectDetailPage() {
                     </div>
                     <div className="space-y-2">
                       {group.testSets.map((ts) => (
-                        <TestSetCard key={ts.id} testSet={ts} showTargets={false} />
+                        <TestSetCard
+                          key={ts.id}
+                          testSet={ts}
+                          showTargets={false}
+                          executionUpdating={analysisStatus.running && activeTestSet?.id === ts.id}
+                        />
                       ))}
                     </div>
                   </section>
