@@ -13,6 +13,7 @@ const gitMocks = vi.hoisted(() => ({
   listRemoteBranches: vi.fn(),
   cloneRepository: vi.fn(),
   checkoutBranch: vi.fn(),
+  getLatestCommit: vi.fn(),
 }))
 
 let testDb: Database.Database
@@ -28,6 +29,7 @@ import {createTestApp} from '../helpers/app.js'
 beforeEach(() => {
   testDb = createTestDb()
   vi.clearAllMocks()
+  gitMocks.getLatestCommit.mockResolvedValue(null)
 })
 
 describe('POST /api/repos/:repoId/sync-branches', () => {
@@ -413,5 +415,31 @@ describe('GET /api/projects/:projectId/repos', () => {
       analysisCursor: 'none',
     })
     expect(gitMocks.getCommitsSince).toHaveBeenCalledWith('/fake/path', 'main', null)
+  })
+
+  it('returns the latest active branch commit with a GitHub URL', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+    testDb
+      .prepare('UPDATE repositories SET github_url = ? WHERE id = ?')
+      .run('git@github.com:org/repo.git', 'repo-1')
+    gitMocks.getCommitsSince.mockResolvedValue([])
+    gitMocks.getLatestCommit.mockResolvedValue({
+      hash: '0123456789abcdef',
+      shortHash: '0123456',
+      author: 'Ada',
+      date: '2026-05-04 08:10:00 +0000',
+      message: 'Ship repository status metadata',
+    })
+
+    const res = await request(app).get(`/api/projects/${projectId}/repos`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data[0].latestCommit).toMatchObject({
+      hash: '0123456789abcdef',
+      shortHash: '0123456',
+      url: 'https://github.com/org/repo/commit/0123456789abcdef',
+    })
+    expect(gitMocks.getLatestCommit).toHaveBeenCalledWith('/fake/path', 'main')
   })
 })

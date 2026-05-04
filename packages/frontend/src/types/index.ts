@@ -20,6 +20,14 @@ export interface Repository {
   activeBranch: RepositoryBranch | null
   unanalyzedCount?: number
   analysisCursor?: 'active' | 'baseline' | 'none'
+  latestCommit?: {
+    hash: string
+    shortHash: string
+    author: string
+    date: string
+    message: string
+    url: string | null
+  } | null
 }
 
 export interface GitHubCredential {

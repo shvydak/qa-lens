@@ -148,7 +148,19 @@ reposRouter.get('/', async (req, res) => {
           unanalyzedCount = commits.length
         } catch {}
       }
-      return {...toDto(repo, branches, activeBranch), unanalyzedCount, analysisCursor}
+      const latestCommit =
+        activeBranch?.status === 'active'
+          ? await GitService.getLatestCommit(repo.localPath, activeBranch.name).catch(() => null)
+          : null
+
+      return {
+        ...toDto(repo, branches, activeBranch),
+        unanalyzedCount,
+        analysisCursor,
+        latestCommit: latestCommit
+          ? {...latestCommit, url: commitUrl(repo.githubUrl, latestCommit.hash)}
+          : null,
+      }
     })
   )
 
@@ -470,6 +482,14 @@ function safeRepoSlug(githubUrl: string): string {
   const withoutGitSuffix = githubUrl.replace(/\.git$/, '')
   const parts = withoutGitSuffix.split(/[/:]/).filter(Boolean)
   return (parts.slice(-2).join('-') || 'repo').replace(/[^a-zA-Z0-9._-]/g, '-')
+}
+
+function commitUrl(githubUrl: string | null, hash: string): string | null {
+  if (!githubUrl || !hash) return null
+  const match = githubUrl.match(/github\.com[:/]([^/:\s]+)\/([^/\s]+?)(?:\.git)?$/)
+  if (!match) return null
+  const [, owner, repo] = match
+  return `https://github.com/${owner}/${repo}/commit/${hash}`
 }
 
 function toDto(

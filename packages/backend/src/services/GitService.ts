@@ -174,6 +174,24 @@ export async function getCommitsSince(
     })
 }
 
+export async function getLatestCommit(
+  localPath: string,
+  branch: string
+): Promise<CommitInfo | null> {
+  const output = await git(
+    ['log', '-1', `origin/${branch}`, '--format=%H|%h|%an|%ai|%s'],
+    localPath
+  )
+    .catch(() => git(['log', '-1', '--format=%H|%h|%an|%ai|%s'], localPath))
+    .catch(() => '')
+
+  if (!output) return null
+
+  const [hash, shortHash, author, date, ...msgParts] = output.split('|')
+  if (!hash) return null
+  return {hash, shortHash, author, date, message: msgParts.join('|')}
+}
+
 export async function getDiff(
   repoId: string,
   repositoryBranchId: string,
