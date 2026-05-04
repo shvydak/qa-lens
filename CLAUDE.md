@@ -85,7 +85,8 @@ npm workspaces monorepo with two packages:
 **Services:**
 
 - `GitService.ts` — all git operations via `execFile` (never shell string interpolation). Uses `origin/<branch>` for remote HEAD, falls back to local HEAD.
-- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Response is always parsed as JSON matching `AIAnalysisOutput`.
+- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Claude/Gemini CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`.
+- `SettingsService.ts` — detects AI provider availability and exposes selectable CLI model options. For Claude, prefer Claude Code aliases (`sonnet`, `sonnet[1m]`, `opus`, `opus[1m]`, `haiku`) instead of pinned model IDs so the installed Claude Code CLI resolves to the current supported models.
 - `AnalysisService.ts` — orchestrates the full analysis cycle: gather diffs from all repos in parallel → call AI → persist `TestSet` + `Test` rows in a single transaction. Tracks in-flight jobs in a `Map<projectId, job>` (in-memory, resets on restart). `markTestSetPassed()` updates `last_analyzed_commit_hash` for every repo in the test set's `commit_ranges` in a single transaction.
 - `PollingService.ts` — runs `git fetch` for every repo every 60s using `Promise.allSettled` (one failure doesn't block others).
 - `prompts/analysis.ts` — the AI prompt template. Edit this to tune analysis quality without touching service logic.
@@ -140,6 +141,8 @@ npm workspaces monorepo with two packages:
 
 **`Array#map` + DTO mappers:** If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
 
+**AI debug dump:** Run backend with `AI_DEBUG_DUMP=1` to write each AI call's `prompt.txt`, `response.json`, and `meta.json` to `packages/backend/.ai-debug/` (gitignored). Use this to inspect what the model actually received and returned without modifying production code paths. `meta.json` records `requestedModel` (Settings selection) and `usedModels` (from `modelUsage` in CLI wrapper) — proves which model executed.
+
 ### Frontend
 
 **Routing:** Three pages via React Router v6 — `/`, `/projects/:id`, `/test-sets/:id`.
@@ -182,8 +185,11 @@ Key variables:
 | `CLIENT_ORIGIN`      | `http://localhost:5173`   | Allowed CORS origin for the backend                    |
 | `VITE_API_URL`       | `http://localhost:3001`   | Frontend API base URL                                  |
 | `AI_PROVIDERS`       | `claude,gemini,anthropic` | Provider order for waterfall                           |
+| `AI_MODELS_CLAUDE`   | —                         | Extra Claude CLI model choices shown in Settings       |
+| `AI_MODELS_GEMINI`   | —                         | Extra Gemini CLI model choices shown in Settings       |
 | `ANTHROPIC_API_KEY`  | —                         | Required only if `anthropic` provider is used          |
+| `AI_DEBUG_DUMP`      | —                         | When set, dump prompt/response/meta to `.ai-debug/`    |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 
-For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI.
+For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI. Prefer Claude Code model aliases over pinned IDs when adding model choices; aliases track the latest models supported by the installed CLI.

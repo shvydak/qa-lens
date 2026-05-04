@@ -36,6 +36,19 @@ describe('GET /api/settings', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.data.defaultAiProvider).toBeNull()
+    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null})
+    expect(res.body.data.aiModelOptions.claude).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({id: 'sonnet'}),
+        expect.objectContaining({id: 'sonnet[1m]'}),
+        expect.objectContaining({id: 'opus'}),
+        expect.objectContaining({id: 'opus[1m]'}),
+        expect.objectContaining({id: 'haiku'}),
+      ])
+    )
+    expect(res.body.data.aiModelOptions.gemini).toEqual(
+      expect.arrayContaining([expect.objectContaining({id: 'gemini-2.5-pro'})])
+    )
     const providers = res.body.data.availableProviders
     expect(providers).toHaveLength(3)
     expect(providers).toEqual(
@@ -57,6 +70,38 @@ describe('GET /api/settings', () => {
     expect(res.status).toBe(200)
     expect(res.body.data.defaultAiProvider).toBe('gemini')
   })
+
+  it('reports saved CLI provider models', async () => {
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_claude', 'sonnet')
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_gemini', 'gemini-2.5-pro')
+
+    const res = await request(app).get('/api/settings')
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.aiProviderModels).toEqual({
+      claude: 'sonnet',
+      gemini: 'gemini-2.5-pro',
+    })
+  })
+
+  it('includes saved custom models in selectable options', async () => {
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_claude', 'claude-custom-local')
+
+    const res = await request(app).get('/api/settings')
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.aiModelOptions.claude).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({id: 'claude-custom-local', source: 'saved'}),
+      ])
+    )
+  })
 })
 
 describe('PATCH /api/settings', () => {
@@ -70,6 +115,51 @@ describe('PATCH /api/settings', () => {
       .prepare('SELECT value FROM app_settings WHERE key = ?')
       .get('default_ai_provider') as {value: string} | undefined
     expect(stored?.value).toBe('claude')
+  })
+
+  it('saves CLI provider models', async () => {
+    const res = await request(app)
+      .patch('/api/settings')
+      .send({aiProviderModels: {claude: ' sonnet ', gemini: 'gemini-2.5-pro'}})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.aiProviderModels).toEqual({
+      claude: 'sonnet',
+      gemini: 'gemini-2.5-pro',
+    })
+
+    const rows = testDb
+      .prepare("SELECT key, value FROM app_settings WHERE key LIKE 'ai_model_%' ORDER BY key")
+      .all() as Array<{key: string; value: string}>
+    expect(rows).toEqual([
+      {key: 'ai_model_claude', value: 'sonnet'},
+      {key: 'ai_model_gemini', value: 'gemini-2.5-pro'},
+    ])
+  })
+
+  it('clears CLI provider models when null or blank is passed', async () => {
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_claude', 'sonnet')
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_gemini', 'gemini-2.5-pro')
+
+    const res = await request(app)
+      .patch('/api/settings')
+      .send({aiProviderModels: {claude: null, gemini: '  '}})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null})
+  })
+
+  it('rejects model selection for unsupported providers', async () => {
+    const res = await request(app)
+      .patch('/api/settings')
+      .send({aiProviderModels: {anthropic: 'claude-sonnet-4-5'}})
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain('not supported')
   })
 
   it('rejects unknown providers', async () => {

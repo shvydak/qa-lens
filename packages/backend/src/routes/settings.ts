@@ -3,12 +3,16 @@ import {getDb} from '../db/index.js'
 import {ulid} from '../utils/ulid.js'
 import {
   ALL_AI_PROVIDERS,
+  MODEL_CONFIGURABLE_PROVIDERS,
   clearSetting,
+  getAIModelOptions,
+  getAIProviderModels,
   getAvailableProviders,
   getDefaultAIProvider,
+  setAIProviderModel,
   setSetting,
 } from '../services/SettingsService.js'
-import type {AIProvider} from '../config.js'
+import type {AIProvider, CLIModelProvider} from '../config.js'
 
 export const settingsRouter = Router()
 
@@ -17,13 +21,18 @@ settingsRouter.get('/', async (_req, res) => {
   res.json({
     data: {
       defaultAiProvider: getDefaultAIProvider(),
+      aiProviderModels: getAIProviderModels(),
+      aiModelOptions: getAIModelOptions(),
       availableProviders: providers,
     },
   })
 })
 
 settingsRouter.patch('/', (req, res) => {
-  const {defaultAiProvider} = req.body as {defaultAiProvider?: string | null}
+  const {defaultAiProvider, aiProviderModels} = req.body as {
+    defaultAiProvider?: string | null
+    aiProviderModels?: Partial<Record<CLIModelProvider, string | null>>
+  }
 
   if (defaultAiProvider === null || defaultAiProvider === '') {
     clearSetting('default_ai_provider')
@@ -34,7 +43,25 @@ settingsRouter.patch('/', (req, res) => {
     setSetting('default_ai_provider', defaultAiProvider)
   }
 
-  return res.json({data: {defaultAiProvider: getDefaultAIProvider()}})
+  if (aiProviderModels && typeof aiProviderModels === 'object') {
+    for (const [provider, model] of Object.entries(aiProviderModels)) {
+      if (!MODEL_CONFIGURABLE_PROVIDERS.includes(provider as CLIModelProvider)) {
+        return res.status(400).json({error: `Model selection is not supported for ${provider}`})
+      }
+      if (model !== null && typeof model !== 'string') {
+        return res.status(400).json({error: `Invalid model for ${provider}`})
+      }
+      setAIProviderModel(provider as CLIModelProvider, model)
+    }
+  }
+
+  return res.json({
+    data: {
+      defaultAiProvider: getDefaultAIProvider(),
+      aiProviderModels: getAIProviderModels(),
+      aiModelOptions: getAIModelOptions(),
+    },
+  })
 })
 
 settingsRouter.get('/credentials', (_req, res) => {

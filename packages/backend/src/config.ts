@@ -16,3 +16,4 @@ export const config = {
 }
 
 export type AIProvider = 'claude' | 'gemini' | 'anthropic'
+export type CLIModelProvider = Extract<AIProvider, 'claude' | 'gemini'>

@@ -1,8 +1,37 @@
 import {useEffect, useState} from 'react'
 import {apiFetch} from '../../api/client.ts'
-import type {AIProviderId, AppSettings, GitHubCredential} from '../../types/index.ts'
+import type {
+  AIProviderId,
+  AppSettings,
+  CLIModelProviderId,
+  GitHubCredential,
+} from '../../types/index.ts'
 
 type Tab = 'ai' | 'tokens' | 'theme'
+type SettingsPatchResponse = Pick<
+  AppSettings,
+  'defaultAiProvider' | 'aiProviderModels' | 'aiModelOptions'
+>
+
+const CLI_MODEL_FIELDS: Array<{
+  provider: CLIModelProviderId
+  label: string
+  placeholder: string
+  hint: string
+}> = [
+  {
+    provider: 'claude',
+    label: 'Claude CLI model',
+    placeholder: 'Default from Claude CLI',
+    hint: 'Uses Claude Code aliases so Sonnet, Opus, and Haiku track the latest supported models.',
+  },
+  {
+    provider: 'gemini',
+    label: 'Gemini CLI model',
+    placeholder: 'Default from Gemini CLI',
+    hint: 'Example: gemini-2.5-pro',
+  },
+]
 
 const TABS: Array<{id: Tab; label: string; description: string; icon: JSX.Element}> = [
   {
@@ -144,6 +173,10 @@ export default function SettingsModal({onClose}: {onClose: () => void}) {
 
 function AIProviderPanel() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [modelDrafts, setModelDrafts] = useState<Record<CLIModelProviderId, string>>({
+    claude: '',
+    gemini: '',
+  })
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -151,26 +184,50 @@ function AIProviderPanel() {
 
   useEffect(() => {
     apiFetch<AppSettings>('GET', '/api/settings')
-      .then(setSettings)
+      .then((data) => {
+        setSettings(data)
+        setModelDrafts({
+          claude: data.aiProviderModels.claude ?? '',
+          gemini: data.aiProviderModels.gemini ?? '',
+        })
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings'))
   }, [])
 
-  const save = async (defaultAiProvider: AIProviderId | null) => {
+  const saveProvider = async (defaultAiProvider: AIProviderId | null) => {
     setSaving(true)
     setError('')
     try {
-      const updated = await apiFetch<{defaultAiProvider: AIProviderId | null}>(
-        'PATCH',
-        '/api/settings',
-        {defaultAiProvider}
-      )
-      setSettings((prev) => (prev ? {...prev, defaultAiProvider: updated.defaultAiProvider} : prev))
+      const updated = await apiFetch<SettingsPatchResponse>('PATCH', '/api/settings', {
+        defaultAiProvider,
+      })
+      setSettings((prev) => (prev ? {...prev, ...updated} : prev))
       setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setSaving(false)
       setOpen(false)
+    }
+  }
+
+  const saveModel = async (provider: CLIModelProviderId) => {
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await apiFetch<SettingsPatchResponse>('PATCH', '/api/settings', {
+        aiProviderModels: {[provider]: modelDrafts[provider].trim() || null},
+      })
+      setSettings((prev) => (prev ? {...prev, ...updated} : prev))
+      setModelDrafts({
+        claude: updated.aiProviderModels.claude ?? '',
+        gemini: updated.aiProviderModels.gemini ?? '',
+      })
+      setSavedAt(Date.now())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -241,7 +298,7 @@ function AIProviderPanel() {
                 label="Auto (waterfall)"
                 description="Try claude → gemini → anthropic in order"
                 selected={settings.defaultAiProvider === null}
-                onClick={() => save(null)}
+                onClick={() => saveProvider(null)}
               />
               <div className="border-t border-gray-800/80" />
               {settings.availableProviders.map((p) => (
@@ -251,7 +308,7 @@ function AIProviderPanel() {
                   description={p.available ? 'Available on this host' : p.reason || 'Unavailable'}
                   available={p.available}
                   selected={settings.defaultAiProvider === p.id}
-                  onClick={() => p.available && save(p.id)}
+                  onClick={() => p.available && saveProvider(p.id)}
                 />
               ))}
             </div>
@@ -262,6 +319,75 @@ function AIProviderPanel() {
           <p className="mt-3 text-xs text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>
         )}
         {savedAt && !error && <p className="mt-3 text-xs text-emerald-400/90">Saved</p>}
+      </section>
+
+      <section className="pt-5 border-t border-gray-800/60">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <p className="text-xs font-medium text-gray-400">CLI models</p>
+            <p className="text-xs text-gray-600 leading-relaxed mt-1">
+              Choose a model known by the installed CLI, or enter a model name manually.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {CLI_MODEL_FIELDS.map((field) => {
+            const saved = settings.aiProviderModels[field.provider] ?? ''
+            const dirty = modelDrafts[field.provider].trim() !== saved
+            const options = settings.aiModelOptions[field.provider] ?? []
+            return (
+              <div key={field.provider} className="space-y-1.5">
+                <label
+                  htmlFor={`model-${field.provider}`}
+                  className="block text-[11px] font-medium text-gray-500">
+                  {field.label}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id={`model-${field.provider}`}
+                    value={modelDrafts[field.provider]}
+                    onChange={(e) =>
+                      setModelDrafts((prev) => ({...prev, [field.provider]: e.target.value}))
+                    }
+                    placeholder={field.placeholder}
+                    disabled={saving}
+                    className="min-w-0 flex-1 rounded-lg border border-gray-800/80 bg-gray-950/50 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-700 outline-none transition-colors focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30"
+                  />
+                  <button
+                    type="button"
+                    disabled={saving || !dirty}
+                    onClick={() => saveModel(field.provider)}
+                    className={`rounded-lg px-3 text-xs font-medium transition-colors ${
+                      dirty
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+                        : 'bg-gray-800/60 text-gray-600 cursor-not-allowed'
+                    }`}>
+                    Save
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-700">{field.hint}</p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <ModelChip
+                    label="CLI default"
+                    active={!modelDrafts[field.provider].trim()}
+                    onClick={() => setModelDrafts((prev) => ({...prev, [field.provider]: ''}))}
+                  />
+                  {options.map((option) => (
+                    <ModelChip
+                      key={option.id}
+                      label={option.label}
+                      active={modelDrafts[field.provider].trim() === option.id}
+                      muted={option.source === 'saved'}
+                      onClick={() =>
+                        setModelDrafts((prev) => ({...prev, [field.provider]: option.id}))
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </section>
 
       <section className="pt-5 border-t border-gray-800/60">
@@ -287,6 +413,33 @@ function AIProviderPanel() {
         </ul>
       </section>
     </div>
+  )
+}
+
+function ModelChip({
+  label,
+  active,
+  muted = false,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  muted?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
+        active
+          ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-200'
+          : muted
+            ? 'border-gray-800 bg-gray-950/30 text-gray-600 hover:text-gray-400'
+            : 'border-gray-800 bg-gray-950/40 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+      }`}>
+      {label}
+    </button>
   )
 }
 

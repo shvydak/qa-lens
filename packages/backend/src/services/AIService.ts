@@ -1,11 +1,39 @@
 import {execFile} from 'child_process'
+import {mkdir, writeFile} from 'fs/promises'
+import path from 'path'
 import {promisify} from 'util'
 import {config} from '../config.js'
 import {buildAnalysisPrompt} from './prompts/analysis.js'
-import {detectProviderAvailability, getDefaultAIProvider} from './SettingsService.js'
+import {
+  detectProviderAvailability,
+  getAIProviderModel,
+  getDefaultAIProvider,
+} from './SettingsService.js'
 import type {DiffResult, AIAnalysisOutput} from '../types/index.js'
 
 const execFileAsync = promisify(execFile)
+
+const AI_DEBUG_DIR = path.resolve(process.cwd(), '.ai-debug')
+
+async function dumpAIDebug(
+  provider: string,
+  prompt: string,
+  rawResponse: string,
+  meta: Record<string, unknown>
+): Promise<void> {
+  if (!process.env.AI_DEBUG_DUMP) return
+  try {
+    await mkdir(AI_DEBUG_DIR, {recursive: true})
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const base = path.join(AI_DEBUG_DIR, `${ts}-${provider}`)
+    await writeFile(`${base}-prompt.txt`, prompt, 'utf8')
+    await writeFile(`${base}-response.json`, rawResponse, 'utf8')
+    await writeFile(`${base}-meta.json`, JSON.stringify(meta, null, 2), 'utf8')
+    console.log(`[AIService] dumped AI debug to ${base}-{prompt,response,meta}`)
+  } catch (err) {
+    console.warn('[AIService] failed to dump AI debug', err)
+  }
+}
 
 interface AnalysisInput {
   projectName: string
@@ -71,24 +99,47 @@ async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnal
   if (!(await isCommandAvailable('claude'))) throw new Error('claude CLI not found')
 
   const addDirArgs = repoPaths.flatMap((p) => ['--add-dir', p])
+  const model = getAIProviderModel('claude')
+  const modelArgs = model ? ['--model', model] : []
+  console.log('[AIService] claude CLI invoke', {model: model ?? '(default)', repoPaths})
   const {stdout} = await execFileAsync(
     'claude',
-    ['-p', prompt, ...addDirArgs, '--output-format', 'json'],
+    ['-p', prompt, ...addDirArgs, ...modelArgs, '--output-format', 'json'],
     {timeout: 180_000, maxBuffer: 10 * 1024 * 1024}
   )
 
   const wrapper = JSON.parse(stdout.trim())
+  let usedModels: string[] = []
+  if (wrapper && typeof wrapper === 'object') {
+    const modelUsage = (wrapper as Record<string, unknown>).modelUsage
+    usedModels = modelUsage && typeof modelUsage === 'object' ? Object.keys(modelUsage) : []
+    console.log('[AIService] claude CLI response models', usedModels)
+  }
   const text = typeof wrapper.result === 'string' ? wrapper.result : stdout
+  await dumpAIDebug('claude', prompt, stdout, {
+    requestedModel: model ?? null,
+    usedModels,
+    repoPaths,
+  })
   return parseAIJson(text)
 }
 
 async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
   if (!(await isCommandAvailable('gemini'))) throw new Error('gemini CLI not found')
 
-  const {stdout} = await execFileAsync('gemini', ['-p', prompt, '--output-format', 'json'], {
-    timeout: 180_000,
-    maxBuffer: 10 * 1024 * 1024,
-  })
+  const model = getAIProviderModel('gemini')
+  const modelArgs = model ? ['--model', model] : []
+  console.log('[AIService] gemini CLI invoke', {model: model ?? '(default)'})
+  const {stdout} = await execFileAsync(
+    'gemini',
+    ['-p', prompt, ...modelArgs, '--output-format', 'json'],
+    {
+      timeout: 180_000,
+      maxBuffer: 10 * 1024 * 1024,
+    }
+  )
+
+  await dumpAIDebug('gemini', prompt, stdout, {requestedModel: model ?? null})
 
   try {
     const wrapper = JSON.parse(stdout.trim())
@@ -120,6 +171,9 @@ async function runAnthropicApi(prompt: string): Promise<AIAnalysisOutput> {
 
   const data = (await response.json()) as {content: Array<{type: string; text: string}>}
   const text = data.content.find((b) => b.type === 'text')?.text || ''
+  await dumpAIDebug('anthropic', prompt, JSON.stringify(data, null, 2), {
+    model: 'claude-sonnet-4-5',
+  })
   return parseAIJson(text)
 }
 

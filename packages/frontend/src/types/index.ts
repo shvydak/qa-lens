@@ -40,6 +40,7 @@ export interface GitHubCredential {
 }
 
 export type AIProviderId = 'claude' | 'gemini' | 'anthropic'
+export type CLIModelProviderId = Extract<AIProviderId, 'claude' | 'gemini'>
 
 export interface AIProviderInfo {
   id: AIProviderId
@@ -48,8 +49,16 @@ export interface AIProviderInfo {
   reason?: string
 }
 
+export interface AIModelOption {
+  id: string
+  label: string
+  source: 'known' | 'configured' | 'saved'
+}
+
 export interface AppSettings {
   defaultAiProvider: AIProviderId | null
+  aiProviderModels: Record<CLIModelProviderId, string | null>
+  aiModelOptions: Record<CLIModelProviderId, AIModelOption[]>
   availableProviders: AIProviderInfo[]
 }
 
