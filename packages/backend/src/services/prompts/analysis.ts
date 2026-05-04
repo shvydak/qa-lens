@@ -93,6 +93,9 @@ Rules:
 - tests array: 5-20 items, sorted by priority (high first)
 - Every test must have 3-8 manual steps.
 - Every test must have a clear expected_result.
+- Treat Project Architecture & Context as the source of truth for product scope.
+- Do not create tests for clients, platforms, apps, or workflows that are marked out of scope in Project Architecture & Context.
+- If a shared backend change affects both in-scope and out-of-scope clients, write tests only for the in-scope client and mention the shared risk in technical_context only when useful.
 - Prefer user workflows over implementation details.
 - Good: "Create an order with a discount and check the total price."
 - Bad: "Test POST /api/orders with discount_code field."
