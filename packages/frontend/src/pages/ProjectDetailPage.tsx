@@ -2,6 +2,7 @@ import {useState, useEffect, useCallback, useRef} from 'react'
 import {useParams, useNavigate, Link} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
 import type {Project, Repository, TestSet, AnalysisStatus, RemoteBranch} from '../types/index.ts'
+import {useActiveProject} from '../contexts/ActiveProjectContext.tsx'
 import RepoCard from '../components/repositories/RepoCard.tsx'
 import RepoForm from '../components/repositories/RepoForm.tsx'
 import AnalysisPanel from '../components/testSets/AnalysisPanel.tsx'
@@ -10,6 +11,11 @@ import TestSetCard from '../components/testSets/TestSetCard.tsx'
 export default function ProjectDetailPage() {
   const {id} = useParams<{id: string}>()
   const navigate = useNavigate()
+  const {setActiveProjectId} = useActiveProject()
+
+  useEffect(() => {
+    setActiveProjectId(id ?? null)
+  }, [id, setActiveProjectId])
 
   const [project, setProject] = useState<Project | null>(null)
   const [repos, setRepos] = useState<Repository[]>([])
@@ -240,20 +246,13 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <Link
-        to="/"
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path
-            d="M9 2L4 7l5 5"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        Projects
-      </Link>
+      <nav className="flex items-center gap-1.5 text-sm mb-6">
+        <Link to="/" className="text-gray-500 hover:text-gray-300 transition-colors">
+          Projects
+        </Link>
+        <span className="text-gray-700">›</span>
+        <span className="text-gray-400">{project.name}</span>
+      </nav>
 
       <div className="mb-7 rounded-2xl border border-gray-800/60 bg-gray-900/50 p-5 shadow-2xl shadow-black/10">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

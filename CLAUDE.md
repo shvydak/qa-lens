@@ -154,6 +154,14 @@ npm workspaces monorepo with two packages:
 
 **Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), **`checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. **`TestSetCard`** renders the segmented checklist bar; **`ProjectDetailPage`** passes **`executionUpdating`** when `analysisStatus.running && activeTestSet?.id === ts.id`.
 
+**Active project context:** `src/contexts/ActiveProjectContext.tsx` tracks `activeProjectId` and `testSetVersion`. Pages call `setActiveProjectId(id)` on mount; `invalidateTestSets()` triggers a sidebar re-fetch of test sets — call it after any mutation that changes `checklistCounts` (e.g. test status updates).
+
+**Sidebar navigation:** `AppShell` renders a persistent project list and test sets under the active project. Re-fetches both on `location.pathname` changes + `testSetVersion`. Sidebar test sets show a segmented progress bar reusing the `ChecklistCounts` color scheme.
+
+**Sidebar width coupling:** sidebar is `w-56`; `TestSetPage`'s fixed bottom bar uses `left-56` to match. If sidebar width changes, update both.
+
+**Breadcrumbs:** pages use inline `<nav>` breadcrumbs instead of back buttons. `TestSetPage` fetches parent project name separately (via `GET /api/projects/:projectId`) for display in the breadcrumb.
+
 ## Environment
 
 Key variables:

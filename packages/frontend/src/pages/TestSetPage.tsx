@@ -1,7 +1,8 @@
 import {useState, useEffect} from 'react'
 import {useParams, Link, useNavigate} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
-import type {TestSet, Test} from '../types/index.ts'
+import type {TestSet, Test, Project} from '../types/index.ts'
+import {useActiveProject} from '../contexts/ActiveProjectContext.tsx'
 import TestItem from '../components/tests/TestItem.tsx'
 import AddTestForm from '../components/tests/AddTestForm.tsx'
 
@@ -15,7 +16,9 @@ const STATUS_LABELS = {active: 'In progress', passed: 'Passed', failed: 'Failed'
 export default function TestSetPage() {
   const {id} = useParams<{id: string}>()
   const navigate = useNavigate()
+  const {setActiveProjectId, invalidateTestSets} = useActiveProject()
   const [testSet, setTestSet] = useState<TestSet | null>(null)
+  const [project, setProject] = useState<Project | null>(null)
   const [tests, setTests] = useState<Test[]>([])
   const [loading, setLoading] = useState(true)
   const [marking, setMarking] = useState(false)
@@ -28,6 +31,10 @@ export default function TestSetPage() {
       .then((data) => {
         setTestSet(data)
         setTests(data.tests ?? [])
+        setActiveProjectId(data.projectId)
+        apiFetch<Project>('GET', `/api/projects/${data.projectId}`)
+          .then(setProject)
+          .catch(() => {})
       })
       .finally(() => setLoading(false))
   }, [id])
@@ -35,6 +42,7 @@ export default function TestSetPage() {
   const updateTestStatus = async (test: Test, newStatus: Test['status']) => {
     const updated = await apiFetch<Test>('PATCH', `/api/tests/${test.id}`, {status: newStatus})
     setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+    invalidateTestSets()
   }
 
   const deleteTest = async (testId: string) => {
@@ -109,20 +117,19 @@ export default function TestSetPage() {
   return (
     <div className="pb-24">
       <div className="max-w-4xl mx-auto px-8 pt-8">
-        <Link
-          to={`/projects/${testSet.projectId}`}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path
-              d="M9 2L4 7l5 5"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Back to project
-        </Link>
+        <nav className="flex items-center gap-1.5 text-sm mb-6">
+          <Link to="/" className="text-gray-500 hover:text-gray-300 transition-colors">
+            Projects
+          </Link>
+          <span className="text-gray-700">›</span>
+          <Link
+            to={`/projects/${testSet.projectId}`}
+            className="text-gray-500 hover:text-gray-300 transition-colors">
+            {project?.name ?? 'Project'}
+          </Link>
+          <span className="text-gray-700">›</span>
+          <span className="text-gray-400">Test set</span>
+        </nav>
 
         <div className="flex items-start gap-4 mb-6">
           <div className="flex-1 min-w-0">
