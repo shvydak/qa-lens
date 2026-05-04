@@ -3,10 +3,12 @@ import {Outlet, Link, useLocation, useMatch} from 'react-router-dom'
 import {apiFetch} from '../../api/client.ts'
 import type {Project, TestSet, ChecklistCounts} from '../../types/index.ts'
 import {useActiveProject} from '../../contexts/ActiveProjectContext.tsx'
+import SettingsModal from '../settings/SettingsModal.tsx'
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([])
   const [sidebarTestSets, setSidebarTestSets] = useState<TestSet[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const location = useLocation()
   const {activeProjectId, testSetVersion} = useActiveProject()
   const testSetMatch = useMatch('/test-sets/:id')
@@ -105,14 +107,30 @@ export default function AppShell() {
           </div>
         </nav>
 
-        <div className="p-3 border-t border-gray-800/60">
-          <p className="text-xs text-gray-600 text-center">QA Lens v0.1</p>
+        <div className="p-3 border-t border-gray-800/60 space-y-1">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 transition-colors">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <circle cx="7" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M7 1.2v1.4M7 11.4v1.4M1.2 7h1.4M11.4 7h1.4M2.95 2.95l1 1M10.05 10.05l1 1M2.95 11.05l1-1M10.05 3.95l1-1"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="font-medium">Settings</span>
+          </button>
+          <p className="text-[10px] text-gray-700 text-center pt-1">QA Lens v0.1</p>
         </div>
       </aside>
 
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import {execFile} from 'child_process'
 import {promisify} from 'util'
 import {config} from '../config.js'
 import {buildAnalysisPrompt} from './prompts/analysis.js'
+import {detectProviderAvailability, getDefaultAIProvider} from './SettingsService.js'
 import type {DiffResult, AIAnalysisOutput} from '../types/index.js'
 
 const execFileAsync = promisify(execFile)
@@ -26,6 +27,8 @@ async function isCommandAvailable(cmd: string): Promise<boolean> {
     return false
   }
 }
+
+export {isCommandAvailable}
 
 function parseAIJson(text: string): AIAnalysisOutput {
   let clean = text.trim()
@@ -83,7 +86,7 @@ async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
   if (!(await isCommandAvailable('gemini'))) throw new Error('gemini CLI not found')
 
   const {stdout} = await execFileAsync('gemini', ['-p', prompt, '--output-format', 'json'], {
-    timeout: 120_000,
+    timeout: 180_000,
     maxBuffer: 10 * 1024 * 1024,
   })
 
@@ -125,11 +128,20 @@ export async function analyze(input: AnalysisInput): Promise<AIAnalysisOutput> {
   const repoPaths = input.repos.map((r) => r.repoPath)
   const errors: string[] = []
 
+  const userDefault = getDefaultAIProvider()
+  if (userDefault) {
+    const info = await detectProviderAvailability(userDefault)
+    if (!info.available) {
+      throw new AllProvidersFailedError([
+        `[${userDefault}] selected as default in Settings but unavailable: ${info.reason}`,
+      ])
+    }
+    return runProvider(userDefault, prompt, repoPaths)
+  }
+
   for (const provider of config.aiProviders) {
     try {
-      if (provider === 'claude') return await runClaudeCli(prompt, repoPaths)
-      if (provider === 'gemini') return await runGeminiCli(prompt)
-      if (provider === 'anthropic') return await runAnthropicApi(prompt)
+      return await runProvider(provider, prompt, repoPaths)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       errors.push(`[${provider}] ${msg}`)
@@ -138,4 +150,15 @@ export async function analyze(input: AnalysisInput): Promise<AIAnalysisOutput> {
   }
 
   throw new AllProvidersFailedError(errors)
+}
+
+function runProvider(
+  provider: string,
+  prompt: string,
+  repoPaths: string[]
+): Promise<AIAnalysisOutput> {
+  if (provider === 'claude') return runClaudeCli(prompt, repoPaths)
+  if (provider === 'gemini') return runGeminiCli(prompt)
+  if (provider === 'anthropic') return runAnthropicApi(prompt)
+  return Promise.reject(new Error(`Unknown AI provider: ${provider}`))
 }

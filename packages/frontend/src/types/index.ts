@@ -32,10 +32,25 @@ export interface Repository {
 
 export interface GitHubCredential {
   id: string
-  projectId: string
+  projectId: string | null
+  scope: 'project' | 'global'
   name: string
   hasToken: boolean
   createdAt: string
+}
+
+export type AIProviderId = 'claude' | 'gemini' | 'anthropic'
+
+export interface AIProviderInfo {
+  id: AIProviderId
+  label: string
+  available: boolean
+  reason?: string
+}
+
+export interface AppSettings {
+  defaultAiProvider: AIProviderId | null
+  availableProviders: AIProviderInfo[]
 }
 
 export interface RepositoryBranch {

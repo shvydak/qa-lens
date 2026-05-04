@@ -58,6 +58,10 @@ beforeEach(() => {
 
 Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
+When adding a new router in `index.ts`, also register it in `src/__tests__/helpers/app.ts` — `createTestApp` is a separate mount point, so route tests will 404 otherwise.
+
+`config` (from `src/config.ts`) is a plain mutable object; per-test override values directly in `beforeEach` (e.g. `config.anthropicApiKey = 'test-key'`) instead of mocking the module.
+
 Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes/repositories.test.ts`.
 
 Managed repo deletion tests: cover folder cleanup on repo/project delete, shared-path preservation, outside-`MANAGED_REPOS_PATH` guard, unknown repo `404`, and failed clone/setup cleanup.
@@ -117,6 +121,10 @@ npm workspaces monorepo with two packages:
 **Branch sync:** `POST /api/repos/:repoId/sync-branches` marks tracked branches `active`/`missing` and returns untracked remote branches; old analysis history must remain even when a remote branch disappears.
 
 **SQLite migrations:** For columns added via `ensureColumn()`, create dependent indexes after `ensureColumn()` in `runMigrations()`, not in the initial `schema.sql` exec.
+
+**Changing column constraints (e.g. NOT NULL → nullable):** SQLite has no `ALTER COLUMN`; recreate the table inside `runMigrations()` (`CREATE TABLE …_new` → `INSERT SELECT` → `DROP` → `RENAME`), guarded by a `PRAGMA table_info` check so it runs only once. Re-create indexes after the rename.
+
+**Nullable + UNIQUE columns:** SQLite treats NULLs as distinct in `UNIQUE(a, b)`, so two rows with `a IS NULL` and the same `b` both pass. For "global" scope (nullable FK) uniqueness, add a partial unique index: `CREATE UNIQUE INDEX … ON t(b) WHERE a IS NULL`.
 
 **Managed repo storage:** Keep `packages/managed-repos/` ignored by git and ESLint; cloned customer repos are input data, not QA Lens source.
 

@@ -22,6 +22,7 @@ export function getDb(): Database.Database {
 function runMigrations(db: Database.Database): void {
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8')
   db.exec(schema)
+  relaxGitHubCredentialsProjectId(db)
   ensureColumn(db, 'repositories', 'github_token', 'TEXT')
   ensureColumn(db, 'repositories', 'github_credential_id', 'TEXT')
   ensureColumn(db, 'repositories', 'source_type', "TEXT NOT NULL DEFAULT 'local_path'")
@@ -52,6 +53,32 @@ function ensureColumn(
   if (columns.some((column) => column.name === columnName)) return
 
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`)
+}
+
+function relaxGitHubCredentialsProjectId(db: Database.Database): void {
+  const columns = db.prepare('PRAGMA table_info(github_credentials)').all() as Array<{
+    name: string
+    notnull: number
+  }>
+  const projectIdColumn = columns.find((column) => column.name === 'project_id')
+  if (!projectIdColumn || projectIdColumn.notnull === 0) return
+
+  db.exec(`
+    CREATE TABLE github_credentials_new (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      token      TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(project_id, name)
+    );
+    INSERT INTO github_credentials_new (id, project_id, name, token, created_at)
+      SELECT id, project_id, name, token, created_at FROM github_credentials;
+    DROP TABLE github_credentials;
+    ALTER TABLE github_credentials_new RENAME TO github_credentials;
+    CREATE INDEX IF NOT EXISTS idx_credentials_project ON github_credentials(project_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_global_name ON github_credentials(name) WHERE project_id IS NULL;
+  `)
 }
 
 function backfillRepositoryBranches(db: Database.Database): void {

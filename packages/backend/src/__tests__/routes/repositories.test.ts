@@ -106,6 +106,7 @@ describe('POST /api/projects/:projectId/repos/credentials', () => {
     expect(res.status).toBe(201)
     expect(res.body.data).toMatchObject({
       projectId,
+      scope: 'project',
       name: 'ProBuild GitHub',
       hasToken: true,
     })
@@ -115,6 +116,32 @@ describe('POST /api/projects/:projectId/repos/credentials', () => {
       .prepare('SELECT token FROM github_credentials WHERE id = ?')
       .get(res.body.data.id) as {token: string} | undefined
     expect(row?.token).toBe('secret-token')
+  })
+})
+
+describe('GET /api/projects/:projectId/repos/credentials', () => {
+  it('returns project and global credentials with scope tags, globals first', async () => {
+    const projectId = seedProject(testDb)
+    const otherProjectId = seedProject(testDb, 'proj-other', 'Other')
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-project', projectId, 'Project token', 'p-secret')
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-other', otherProjectId, 'Other project token', 'o-secret')
+    testDb
+      .prepare(
+        'INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, NULL, ?, ?)'
+      )
+      .run('cred-global', 'Global token', 'g-secret')
+
+    const res = await request(app).get(`/api/projects/${projectId}/repos/credentials`)
+
+    expect(res.status).toBe(200)
+    const ids = res.body.data.map((c: {id: string}) => c.id)
+    expect(ids).toEqual(['cred-global', 'cred-project'])
+    expect(res.body.data[0]).toMatchObject({scope: 'global', projectId: null})
+    expect(res.body.data[1]).toMatchObject({scope: 'project', projectId})
   })
 })
 
@@ -219,6 +246,34 @@ describe('POST /api/projects/:projectId/repos', () => {
     expect(res.status).toBe(400)
     expect(clonedPath).not.toBe('')
     expect(existsSync(clonedPath)).toBe(false)
+  })
+
+  it('resolves a global credential when creating a managed clone', async () => {
+    const projectId = seedProject(testDb)
+    testDb
+      .prepare(
+        'INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, NULL, ?, ?)'
+      )
+      .run('cred-global', 'Global org', 'global-secret')
+    gitMocks.cloneRepository.mockResolvedValue(undefined)
+    gitMocks.fetchOrigin.mockResolvedValue(undefined)
+    gitMocks.checkoutBranch.mockResolvedValue(undefined)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({
+        githubUrl: 'https://github.com/org/repo',
+        githubCredentialId: 'cred-global',
+        branchNames: ['main'],
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({githubCredentialId: 'cred-global', hasAuthToken: true})
+    expect(gitMocks.cloneRepository).toHaveBeenCalledWith(
+      'https://github.com/org/repo',
+      expect.any(String),
+      'global-secret'
+    )
   })
 
   it('uses a saved credential when creating a managed clone', async () => {

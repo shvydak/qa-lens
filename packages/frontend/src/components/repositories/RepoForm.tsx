@@ -166,11 +166,28 @@ export default function RepoForm({
                   }}
                   className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700/50 rounded-lg text-gray-100 text-sm focus:outline-none focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30 transition-colors">
                   <option value="">Use token below or public access</option>
-                  {credentials.map((credential) => (
-                    <option key={credential.id} value={credential.id}>
-                      {credential.name}
-                    </option>
-                  ))}
+                  {credentials.some((c) => c.scope === 'global') && (
+                    <optgroup label="Global tokens">
+                      {credentials
+                        .filter((c) => c.scope === 'global')
+                        .map((credential) => (
+                          <option key={credential.id} value={credential.id}>
+                            {credential.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {credentials.some((c) => c.scope === 'project') && (
+                    <optgroup label="Project tokens">
+                      {credentials
+                        .filter((c) => c.scope === 'project')
+                        .map((credential) => (
+                          <option key={credential.id} value={credential.id}>
+                            {credential.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
             )}

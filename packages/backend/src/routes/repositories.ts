@@ -21,8 +21,8 @@ reposRouter.get('/credentials', (req, res) => {
       `
       SELECT id, project_id, name, token, created_at
       FROM github_credentials
-      WHERE project_id = ?
-      ORDER BY name
+      WHERE project_id = ? OR project_id IS NULL
+      ORDER BY (project_id IS NULL) DESC, name
     `
     )
     .all(projectId)
@@ -427,7 +427,9 @@ function getRepoBranches(repositoryId: string): RepositoryBranch[] {
 function getCredentialToken(projectId: string, credentialId?: string | null): string | null {
   if (!credentialId?.trim()) return null
   const row = getDb()
-    .prepare('SELECT token FROM github_credentials WHERE id = ? AND project_id = ?')
+    .prepare(
+      'SELECT token FROM github_credentials WHERE id = ? AND (project_id = ? OR project_id IS NULL)'
+    )
     .get(credentialId.trim(), projectId) as {token: string} | undefined
   return row?.token ?? null
 }
@@ -517,7 +519,8 @@ function credentialToDto(row: unknown) {
   const r = row as Record<string, unknown>
   return {
     id: r.id,
-    projectId: r.project_id,
+    projectId: r.project_id ?? null,
+    scope: r.project_id ? 'project' : 'global',
     name: r.name,
     hasToken: Boolean(r.token),
     createdAt: r.created_at,

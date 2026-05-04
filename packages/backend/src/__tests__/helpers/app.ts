@@ -3,6 +3,7 @@ import {projectsRouter} from '../../routes/projects.js'
 import {reposRouter, repoActionsRouter} from '../../routes/repositories.js'
 import {testSetsRouter, testSetActionsRouter} from '../../routes/testSets.js'
 import {testsRouter, testActionsRouter} from '../../routes/tests.js'
+import {settingsRouter} from '../../routes/settings.js'
 
 export function createTestApp() {
   const app = express()
@@ -15,6 +16,7 @@ export function createTestApp() {
   app.use('/api/test-sets', testSetActionsRouter)
   app.use('/api/test-sets/:testSetId/tests', testsRouter)
   app.use('/api/tests', testActionsRouter)
+  app.use('/api/settings', settingsRouter)
 
   app.use(
     (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
