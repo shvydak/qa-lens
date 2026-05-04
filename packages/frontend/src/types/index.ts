@@ -92,6 +92,7 @@ export interface TestSet {
   branchSignature: string | null
   name: string
   status: 'active' | 'passed' | 'failed'
+  isEmptyReview: boolean
   commitRanges: Record<string, {from: string | null; to: string}>
   commitTargets?: TestSetCommitTarget[]
   aiSummary: string | null
@@ -147,5 +148,8 @@ export interface Test {
 export interface AnalysisStatus {
   running: boolean
   testSetId: string | null
+  addedTests: number | null
+  totalTests: number | null
+  isEmptyReview: boolean | null
   error: string | null
 }

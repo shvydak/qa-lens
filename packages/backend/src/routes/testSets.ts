@@ -123,6 +123,7 @@ function toDto(
     branchSignature: r.branch_signature ?? null,
     name: r.name,
     status: r.status,
+    isEmptyReview: Number(r.is_empty_review ?? 0) === 1,
     commitRanges,
     commitTargets: getCommitTargets(
       commitRanges as Record<string, {from: string | null; to: string}>

@@ -85,7 +85,7 @@ npm workspaces monorepo with two packages:
 **Services:**
 
 - `GitService.ts` — all git operations via `execFile` (never shell string interpolation). Uses `origin/<branch>` for remote HEAD, falls back to local HEAD.
-- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Claude/Gemini CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`.
+- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Claude/Gemini CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`. `parseAIJson` strips ` ```json ` fences AND extracts the first balanced `{…}` block as a fallback — Claude CLI sometimes prefaces the JSON with prose like "I have enough information…" despite the prompt instruction; do not remove this fallback. The prompt is fed to both CLIs via stdin (`promise.child.stdin?.end(prompt)`), not as a positional `-p <prompt>` argv — large diffs exceed macOS `ARG_MAX` (~256KB) and fail silently with "Command failed" otherwise. Closing stdin (with or without payload) also avoids the CLI's 3-second `no stdin data received` warning. Timeout is 300s. On non-zero exit, extract `e.code`/`e.signal`/`e.stderr`/`e.stdout` from the `execFile` error and rethrow with details — `Error.message` alone shows only the command line.
 - `SettingsService.ts` — detects AI provider availability and exposes selectable CLI model options. For Claude, prefer Claude Code aliases (`sonnet`, `sonnet[1m]`, `opus`, `opus[1m]`, `haiku`) instead of pinned model IDs so the installed Claude Code CLI resolves to the current supported models.
 - `AnalysisService.ts` — orchestrates the full analysis cycle: gather diffs from all repos in parallel → call AI → persist `TestSet` + `Test` rows in a single transaction. Tracks in-flight jobs in a `Map<projectId, job>` (in-memory, resets on restart). `markTestSetPassed()` updates `last_analyzed_commit_hash` for every repo in the test set's `commit_ranges` in a single transaction.
 - `PollingService.ts` — runs `git fetch` for every repo every 60s using `Promise.allSettled` (one failure doesn't block others).
@@ -109,6 +109,10 @@ npm workspaces monorepo with two packages:
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives `status: 'passed'`, it must call `markTestSetPassed()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
 
+**Empty reviews:** When AI returns 0 tests, `AnalysisService.run()` still creates (or extends) a test set so the analyzed commit range is recorded. Initial 0-test sets get `is_empty_review=1` and the UI shows a "Mark as reviewed" button instead of "Mark as Passed" — both call `markTestSetPassed()`. Updates that add 0 tests still extend `commit_ranges` and insert an empty `analysis_run` (label "Update YYYY-MM-DD"). Frontend treats a set as empty-review only when `isEmptyReview && tests.length === 0`, so adding a manual test transitions it back to the normal flow without DB changes.
+
+**Analyze status response:** `GET /api/projects/:id/analyze/status` returns `addedTests`, `totalTests`, `isEmptyReview`. UI uses `addedTests === 0 && totalTests > 0` to skip navigation and show an inline "no new tests" notice on `ProjectDetailPage` instead.
+
 **Analysis cursor:** `commit_ranges` is keyed by `repositoryBranchId` for new analyses; keep legacy `repoId` fallback only for old data. Passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each tracked branch.
 
 **Analysis contexts:** `analysis_contexts` represents a project branch-combination (`branch_signature`); active test sets are scoped by `projectId + analysis_context_id`, not just project.
@@ -122,6 +126,8 @@ npm workspaces monorepo with two packages:
 **Branch sync:** `POST /api/repos/:repoId/sync-branches` marks tracked branches `active`/`missing` and returns untracked remote branches; old analysis history must remain even when a remote branch disappears.
 
 **SQLite migrations:** For columns added via `ensureColumn()`, create dependent indexes after `ensureColumn()` in `runMigrations()`, not in the initial `schema.sql` exec.
+
+**Migrations + tests:** `createTestDb()` applies `schema.sql` directly and does NOT run `runMigrations()`. When you add a column via `ensureColumn()`, also add it to the corresponding `CREATE TABLE` in `schema.sql`, otherwise route/service tests fail with `no such column: …`.
 
 **Changing column constraints (e.g. NOT NULL → nullable):** SQLite has no `ALTER COLUMN`; recreate the table inside `runMigrations()` (`CREATE TABLE …_new` → `INSERT SELECT` → `DROP` → `RENAME`), guarded by a `PRAGMA table_info` check so it runs only once. Re-create indexes after the rename.
 

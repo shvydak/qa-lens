@@ -27,6 +27,7 @@ function runMigrations(db: Database.Database): void {
   ensureColumn(db, 'repositories', 'github_credential_id', 'TEXT')
   ensureColumn(db, 'repositories', 'source_type', "TEXT NOT NULL DEFAULT 'local_path'")
   ensureColumn(db, 'test_sets', 'analysis_context_id', 'TEXT')
+  ensureColumn(db, 'test_sets', 'is_empty_review', 'INTEGER NOT NULL DEFAULT 0')
   ensureColumn(db, 'tests', 'title', 'TEXT')
   ensureColumn(db, 'tests', 'user_scenario', 'TEXT')
   ensureColumn(db, 'tests', 'preconditions', 'TEXT')

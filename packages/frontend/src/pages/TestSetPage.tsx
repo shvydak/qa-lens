@@ -102,8 +102,10 @@ export default function TestSetPage() {
   const doneTests = tests.filter((t) => t.status === 'pass' || t.status === 'skip').length
   const failedTests = tests.filter((t) => t.status === 'fail').length
   const progress = totalTests > 0 ? (doneTests / totalTests) * 100 : 0
+  const isEmptyReview = testSet.isEmptyReview && totalTests === 0
   const canMarkPassed =
-    testSet.status === 'active' && failedTests === 0 && doneTests === totalTests && totalTests > 0
+    testSet.status === 'active' &&
+    (isEmptyReview || (failedTests === 0 && doneTests === totalTests && totalTests > 0))
 
   const priorityOrder = {high: 0, medium: 1, low: 2}
   const sortByPriority = (items: Test[]) =>
@@ -135,8 +137,12 @@ export default function TestSetPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-2">
               <span
-                className={`px-2.5 py-1 text-xs border rounded-lg ${STATUS_STYLES[testSet.status]}`}>
-                {STATUS_LABELS[testSet.status]}
+                className={`px-2.5 py-1 text-xs border rounded-lg ${
+                  isEmptyReview
+                    ? 'bg-gray-700/30 text-gray-400 border-gray-700/40'
+                    : STATUS_STYLES[testSet.status]
+                }`}>
+                {isEmptyReview ? 'Empty review' : STATUS_LABELS[testSet.status]}
               </span>
               <span className="text-xs text-gray-600">
                 {new Date(testSet.createdAt).toLocaleDateString('en-US', {
@@ -149,8 +155,11 @@ export default function TestSetPage() {
               </span>
             </div>
             <h1 className="text-lg font-mono font-medium text-gray-200 leading-snug">
-              {testSet.name}
+              {isEmptyReview ? 'No relevant tests for this analysis' : testSet.name}
             </h1>
+            {isEmptyReview && (
+              <p className="mt-1 font-mono text-xs text-gray-600">{testSet.name}</p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             {testSet.status === 'passed' && (
@@ -172,20 +181,42 @@ export default function TestSetPage() {
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-            <span>
-              {doneTests} of {totalTests} completed
-            </span>
-            <span>{Math.round(progress)}%</span>
+        {!isEmptyReview && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+              <span>
+                {doneTests} of {totalTests} completed
+              </span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                style={{width: `${progress}%`}}
+              />
+            </div>
           </div>
-          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-              style={{width: `${progress}%`}}
-            />
+        )}
+
+        {isEmptyReview && (
+          <div className="mb-6 rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
+            <p className="text-sm text-gray-300">
+              AI did not find any in-scope changes to test in this analysis. The analyzed commit
+              range is recorded above. You can:
+            </p>
+            <ul className="mt-2 space-y-1 pl-4 text-sm text-gray-400">
+              <li className="list-disc">
+                <span className="text-gray-300 font-medium">Mark as reviewed</span> to advance the
+                analysis cursor without running any tests.
+              </li>
+              <li className="list-disc">Add a manual test below if you disagree with the AI.</li>
+              <li className="list-disc">
+                <span className="text-gray-300 font-medium">Delete &amp; rewind</span> to discard
+                this review and re-analyze later.
+              </li>
+            </ul>
           </div>
-        </div>
+        )}
 
         {testSet.commitTargets && testSet.commitTargets.length > 0 && (
           <div className="mb-4 p-4 bg-gray-900 border border-gray-800/50 rounded-xl">
@@ -304,31 +335,39 @@ export default function TestSetPage() {
               Test Cases
             </h2>
             <div className="flex items-center gap-3 text-xs">
-              <button
-                onClick={() => setViewMode('priority')}
-                className={`px-2 py-1 rounded ${
-                  viewMode === 'priority' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
-                }`}>
-                By priority
-              </button>
-              <button
-                onClick={() => setViewMode('update')}
-                className={`px-2 py-1 rounded ${
-                  viewMode === 'update' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
-                }`}>
-                By update
-              </button>
-              <span className="text-emerald-500">
-                {tests.filter((t) => t.status === 'pass').length} pass
-              </span>
-              <span className="text-red-400">{failedTests} fail</span>
-              <span className="text-gray-500">
-                {tests.filter((t) => t.status === 'not_tested').length} pending
-              </span>
+              {totalTests > 0 && (
+                <>
+                  <button
+                    onClick={() => setViewMode('priority')}
+                    className={`px-2 py-1 rounded ${
+                      viewMode === 'priority' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                    }`}>
+                    By priority
+                  </button>
+                  <button
+                    onClick={() => setViewMode('update')}
+                    className={`px-2 py-1 rounded ${
+                      viewMode === 'update' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                    }`}>
+                    By update
+                  </button>
+                  <span className="text-emerald-500">
+                    {tests.filter((t) => t.status === 'pass').length} pass
+                  </span>
+                  <span className="text-red-400">{failedTests} fail</span>
+                  <span className="text-gray-500">
+                    {tests.filter((t) => t.status === 'not_tested').length} pending
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
-          {viewMode === 'priority' ? (
+          {totalTests === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-800/70 bg-gray-900/30 px-4 py-6 text-center text-sm text-gray-500">
+              No test cases yet.
+            </div>
+          ) : viewMode === 'priority' ? (
             <div className="space-y-1.5">
               {sortedTests.map((test) => (
                 <TestItem
@@ -346,26 +385,33 @@ export default function TestSetPage() {
                 const runTests = sortByPriority(
                   tests.filter((test) => test.analysisRunId === run.id)
                 )
-                if (runTests.length === 0) return null
+                const branchCount = Object.keys(run.commitRanges).length
                 return (
                   <section key={run.id}>
                     <div className="mb-2 rounded-xl border border-gray-800/70 bg-gray-900/60 px-4 py-3">
                       <div className="text-sm font-medium text-gray-300">{run.label}</div>
                       <div className="mt-1 text-xs text-gray-600">
-                        {Object.keys(run.commitRanges).length} branch range
-                        {Object.keys(run.commitRanges).length === 1 ? '' : 's'}
+                        {branchCount} branch range{branchCount === 1 ? '' : 's'}
+                        {runTests.length === 0 && ' · no new tests'}
                       </div>
+                      {runTests.length === 0 && run.aiSummary && (
+                        <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+                          {run.aiSummary}
+                        </p>
+                      )}
                     </div>
-                    <div className="space-y-1.5">
-                      {runTests.map((test) => (
-                        <TestItem
-                          key={test.id}
-                          test={test}
-                          onStatusChange={(status) => updateTestStatus(test, status)}
-                          onDelete={() => deleteTest(test.id)}
-                        />
-                      ))}
-                    </div>
+                    {runTests.length > 0 && (
+                      <div className="space-y-1.5">
+                        {runTests.map((test) => (
+                          <TestItem
+                            key={test.id}
+                            test={test}
+                            onStatusChange={(status) => updateTestStatus(test, status)}
+                            onDelete={() => deleteTest(test.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </section>
                 )
               })}
@@ -384,14 +430,18 @@ export default function TestSetPage() {
         <div className="fixed bottom-0 left-56 right-0 bg-gray-950/90 backdrop-blur-md border-t border-gray-800/60 px-8 py-4">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <div className="text-sm text-gray-500">
-              {!canMarkPassed &&
+              {isEmptyReview ? (
+                <span>Advances the analysis cursor without testing.</span>
+              ) : (
+                !canMarkPassed &&
                 (failedTests > 0 ? (
                   <span className="text-red-400">
                     {failedTests} failed test{failedTests > 1 ? 's' : ''}
                   </span>
                 ) : (
                   <span>Complete all tests to mark as passed</span>
-                ))}
+                ))
+              )}
             </div>
             <button
               onClick={markPassed}
@@ -406,7 +456,7 @@ export default function TestSetPage() {
                   strokeLinejoin="round"
                 />
               </svg>
-              {marking ? 'Saving...' : 'Mark as Passed'}
+              {marking ? 'Saving...' : isEmptyReview ? 'Mark as reviewed' : 'Mark as Passed'}
             </button>
           </div>
         </div>

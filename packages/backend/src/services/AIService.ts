@@ -63,6 +63,11 @@ function parseAIJson(text: string): AIAnalysisOutput {
   if (clean.startsWith('```json')) clean = clean.replace(/^```json\n?/, '').replace(/\n?```$/, '')
   else if (clean.startsWith('```')) clean = clean.replace(/^```\n?/, '').replace(/\n?```$/, '')
 
+  if (!clean.startsWith('{') && !clean.startsWith('[')) {
+    const extracted = extractJsonBlock(clean)
+    if (extracted) clean = extracted
+  }
+
   const parsed = JSON.parse(clean)
   return {
     summary: String(parsed.summary || ''),
@@ -95,6 +100,38 @@ function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : []
 }
 
+function extractJsonBlock(text: string): string | null {
+  const firstBrace = text.indexOf('{')
+  const firstBracket = text.indexOf('[')
+  const candidates = [firstBrace, firstBracket].filter((i) => i >= 0)
+  if (candidates.length === 0) return null
+  const start = Math.min(...candidates)
+  const open = text[start]
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') escape = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === open) depth++
+    else if (ch === close) {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
 async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnalysisOutput> {
   if (!(await isCommandAvailable('claude'))) throw new Error('claude CLI not found')
 
@@ -102,11 +139,50 @@ async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnal
   const model = getAIProviderModel('claude')
   const modelArgs = model ? ['--model', model] : []
   console.log('[AIService] claude CLI invoke', {model: model ?? '(default)', repoPaths})
-  const {stdout} = await execFileAsync(
+  const claudePromise = execFileAsync(
     'claude',
-    ['-p', prompt, ...addDirArgs, ...modelArgs, '--output-format', 'json'],
-    {timeout: 180_000, maxBuffer: 10 * 1024 * 1024}
+    ['-p', ...addDirArgs, ...modelArgs, '--output-format', 'json'],
+    {timeout: 300_000, maxBuffer: 10 * 1024 * 1024}
   )
+  claudePromise.child.stdin?.end(prompt)
+  let stdout = ''
+  try {
+    const result = await claudePromise
+    stdout = result.stdout as string
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & {
+      stdout?: string | Buffer
+      stderr?: string | Buffer
+      code?: string | number
+      signal?: string
+    }
+    const out = e.stdout?.toString() ?? ''
+    const errOut = e.stderr?.toString() ?? ''
+    await dumpAIDebug('claude', prompt, out || errOut || e.message, {
+      requestedModel: model ?? null,
+      repoPaths,
+      failed: true,
+      exitCode: e.code ?? null,
+      signal: e.signal ?? null,
+      stderr: errOut,
+    })
+    console.error('[AIService] claude CLI failed', {
+      code: e.code,
+      signal: e.signal,
+      stderrLen: errOut.length,
+      stdoutLen: out.length,
+    })
+    const detail =
+      [
+        e.signal ? `signal=${e.signal}` : null,
+        e.code !== undefined ? `code=${e.code}` : null,
+        errOut.trim() ? `stderr: ${errOut.trim().slice(0, 500)}` : null,
+        !errOut.trim() && out.trim() ? `stdout: ${out.trim().slice(0, 500)}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ') || 'no output'
+    throw new Error(`claude CLI failed (${detail})`)
+  }
 
   const wrapper = JSON.parse(stdout.trim())
   let usedModels: string[] = []
@@ -130,14 +206,12 @@ async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
   const model = getAIProviderModel('gemini')
   const modelArgs = model ? ['--model', model] : []
   console.log('[AIService] gemini CLI invoke', {model: model ?? '(default)'})
-  const {stdout} = await execFileAsync(
-    'gemini',
-    ['-p', prompt, ...modelArgs, '--output-format', 'json'],
-    {
-      timeout: 180_000,
-      maxBuffer: 10 * 1024 * 1024,
-    }
-  )
+  const geminiPromise = execFileAsync('gemini', [...modelArgs, '--output-format', 'json'], {
+    timeout: 300_000,
+    maxBuffer: 10 * 1024 * 1024,
+  })
+  geminiPromise.child.stdin?.end(prompt)
+  const {stdout} = await geminiPromise
 
   await dumpAIDebug('gemini', prompt, stdout, {requestedModel: model ?? null})
 

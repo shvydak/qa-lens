@@ -103,5 +103,5 @@ Rules:
 - Bad: "Test POST /api/orders with discount_code field."
 - regressions: focus on things that WORKED BEFORE but could break
 - cross_repo_impacts: only include if you found actual shared code/endpoints between repos
-- Output ONLY the JSON object, no markdown, no explanation`
+- Output ONLY the JSON object. No preface, no thinking-out-loud, no markdown fences, no closing remarks. The first character of your response MUST be \`{\` and the last character MUST be \`}\`.`
 }

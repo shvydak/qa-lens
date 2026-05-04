@@ -23,8 +23,12 @@ export default function ProjectDetailPage() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>({
     running: false,
     testSetId: null,
+    addedTests: null,
+    totalTests: null,
+    isEmptyReview: null,
     error: null,
   })
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const [showRepoForm, setShowRepoForm] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
@@ -97,7 +101,12 @@ export default function ProjectDetailPage() {
       if (navigateOnComplete && !data.running && data.testSetId) {
         clearInterval(analysisPollRef.current!)
         await loadTestSets()
-        navigate(`/test-sets/${data.testSetId}`)
+        // Update on existing set that produced 0 new tests: stay here, show notice.
+        if (data.addedTests === 0 && (data.totalTests ?? 0) > 0) {
+          setAnalysisNotice('No new relevant tests for this update.')
+        } else {
+          navigate(`/test-sets/${data.testSetId}`)
+        }
       }
       if (!data.running && data.error) {
         clearInterval(analysisPollRef.current!)
@@ -133,13 +142,24 @@ export default function ProjectDetailPage() {
 
   const startAnalysis = async () => {
     if (!id || analysisDisabled) return
-    setAnalysisStatus({running: true, testSetId: null, error: null})
+    setAnalysisNotice(null)
+    setAnalysisStatus({
+      running: true,
+      testSetId: null,
+      addedTests: null,
+      totalTests: null,
+      isEmptyReview: null,
+      error: null,
+    })
     try {
       await apiFetch('POST', `/api/projects/${id}/analyze`, {})
     } catch (err) {
       setAnalysisStatus({
         running: false,
         testSetId: null,
+        addedTests: null,
+        totalTests: null,
+        isEmptyReview: null,
         error: err instanceof Error ? err.message : 'Error',
       })
       return
@@ -354,6 +374,43 @@ export default function ProjectDetailPage() {
               activeMode={Boolean(activeTestSet)}
               onAnalyze={startAnalysis}
             />
+            {analysisNotice && !analysisStatus.running && (
+              <div className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-gray-700/50 bg-gray-900/60 px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    className="mt-0.5 flex-shrink-0 text-gray-500">
+                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+                    <path
+                      d="M7 4.5v3M7 9.5v.5"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="text-xs text-gray-400">
+                    <p className="text-gray-300">{analysisNotice}</p>
+                    {analysisStatus.testSetId && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/test-sets/${analysisStatus.testSetId}`)}
+                        className="mt-1 text-indigo-400 hover:text-indigo-300">
+                        View details →
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisNotice(null)}
+                  className="text-gray-600 hover:text-gray-400 text-xs">
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {testSets.length > 0 && (

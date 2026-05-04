@@ -48,6 +48,7 @@ export default function TestSetCard({
   const counts = testSet.checklistCounts
   const checklistLine = counts ? formatChecklistLine(counts) : null
   const checklistAria = counts ? formatChecklistAria(counts) : undefined
+  const isEmptyReview = testSet.isEmptyReview && (counts?.total ?? 0) === 0
 
   return (
     <button
@@ -56,12 +57,16 @@ export default function TestSetCard({
       className="w-full text-left group p-3.5 bg-gray-900/60 border border-gray-800/40 rounded-xl hover:border-gray-700/70 hover:bg-gray-900 transition-all">
       <div className="flex items-start gap-3">
         <div
-          className={`flex-shrink-0 mt-0.5 px-2 py-0.5 text-xs border rounded-md ${STATUS_STYLES[testSet.status]}`}>
-          {STATUS_LABELS[testSet.status]}
+          className={`flex-shrink-0 mt-0.5 px-2 py-0.5 text-xs border rounded-md ${
+            isEmptyReview
+              ? 'bg-gray-700/30 text-gray-400 border-gray-700/40'
+              : STATUS_STYLES[testSet.status]
+          }`}>
+          {isEmptyReview ? 'Empty review' : STATUS_LABELS[testSet.status]}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-300 truncate">
-            {targetSummary || testSet.name}
+            {isEmptyReview ? 'No relevant tests' : targetSummary || testSet.name}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
             {updateLabel && <span>{updateLabel}</span>}
@@ -73,6 +78,10 @@ export default function TestSetCard({
               aria-label="Checklist is being updated by analysis">
               <div className="h-full w-full animate-pulse rounded-full bg-indigo-500/35" />
             </div>
+          ) : isEmptyReview ? (
+            <p className="mt-2 text-[11px] text-gray-500">
+              AI found no in-scope changes for this update
+            </p>
           ) : counts && counts.total > 0 ? (
             <div className="mt-2.5 space-y-1.5">
               <div
