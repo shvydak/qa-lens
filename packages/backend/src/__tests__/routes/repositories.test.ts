@@ -1,6 +1,9 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
+import {existsSync, mkdirSync, rmSync} from 'fs'
+import {join} from 'path'
+import {config} from '../../config.js'
 import {createTestDb, seedProject, seedRepo, seedTestSet} from '../helpers/db.js'
 
 const gitMocks = vi.hoisted(() => ({
@@ -10,6 +13,7 @@ const gitMocks = vi.hoisted(() => ({
   listRemoteBranches: vi.fn(),
   cloneRepository: vi.fn(),
   checkoutBranch: vi.fn(),
+  getLatestCommit: vi.fn(),
 }))
 
 let testDb: Database.Database
@@ -25,6 +29,7 @@ import {createTestApp} from '../helpers/app.js'
 beforeEach(() => {
   testDb = createTestDb()
   vi.clearAllMocks()
+  gitMocks.getLatestCommit.mockResolvedValue(null)
 })
 
 describe('POST /api/repos/:repoId/sync-branches', () => {
@@ -101,6 +106,7 @@ describe('POST /api/projects/:projectId/repos/credentials', () => {
     expect(res.status).toBe(201)
     expect(res.body.data).toMatchObject({
       projectId,
+      scope: 'project',
       name: 'ProBuild GitHub',
       hasToken: true,
     })
@@ -110,6 +116,32 @@ describe('POST /api/projects/:projectId/repos/credentials', () => {
       .prepare('SELECT token FROM github_credentials WHERE id = ?')
       .get(res.body.data.id) as {token: string} | undefined
     expect(row?.token).toBe('secret-token')
+  })
+})
+
+describe('GET /api/projects/:projectId/repos/credentials', () => {
+  it('returns project and global credentials with scope tags, globals first', async () => {
+    const projectId = seedProject(testDb)
+    const otherProjectId = seedProject(testDb, 'proj-other', 'Other')
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-project', projectId, 'Project token', 'p-secret')
+    testDb
+      .prepare('INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, ?, ?, ?)')
+      .run('cred-other', otherProjectId, 'Other project token', 'o-secret')
+    testDb
+      .prepare(
+        'INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, NULL, ?, ?)'
+      )
+      .run('cred-global', 'Global token', 'g-secret')
+
+    const res = await request(app).get(`/api/projects/${projectId}/repos/credentials`)
+
+    expect(res.status).toBe(200)
+    const ids = res.body.data.map((c: {id: string}) => c.id)
+    expect(ids).toEqual(['cred-global', 'cred-project'])
+    expect(res.body.data[0]).toMatchObject({scope: 'global', projectId: null})
+    expect(res.body.data[1]).toMatchObject({scope: 'project', projectId})
   })
 })
 
@@ -150,6 +182,18 @@ describe('POST /api/projects/:projectId/repos/discover-branches', () => {
 })
 
 describe('POST /api/projects/:projectId/repos', () => {
+  it('rejects direct local path repositories', async () => {
+    const projectId = seedProject(testDb)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({localPath: '/tmp/repo', branchNames: ['main']})
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('githubUrl is required')
+    expect(gitMocks.validateRepo).not.toHaveBeenCalled()
+  })
+
   it('stores the token for managed clones without returning it in the response', async () => {
     const projectId = seedProject(testDb)
     gitMocks.cloneRepository.mockResolvedValue(undefined)
@@ -183,6 +227,55 @@ describe('POST /api/projects/:projectId/repos', () => {
     expect(row?.github_token).toBe('secret-token')
   })
 
+  it('cleans up the managed clone folder when setup fails', async () => {
+    const projectId = seedProject(testDb)
+    let clonedPath = ''
+    gitMocks.cloneRepository.mockImplementation(async (_url: string, localPath: string) => {
+      clonedPath = localPath
+      mkdirSync(localPath, {recursive: true})
+    })
+    gitMocks.fetchOrigin.mockRejectedValue(new Error('fetch failed'))
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({
+        githubUrl: 'https://github.com/org/repo',
+        branchNames: ['main'],
+      })
+
+    expect(res.status).toBe(400)
+    expect(clonedPath).not.toBe('')
+    expect(existsSync(clonedPath)).toBe(false)
+  })
+
+  it('resolves a global credential when creating a managed clone', async () => {
+    const projectId = seedProject(testDb)
+    testDb
+      .prepare(
+        'INSERT INTO github_credentials (id, project_id, name, token) VALUES (?, NULL, ?, ?)'
+      )
+      .run('cred-global', 'Global org', 'global-secret')
+    gitMocks.cloneRepository.mockResolvedValue(undefined)
+    gitMocks.fetchOrigin.mockResolvedValue(undefined)
+    gitMocks.checkoutBranch.mockResolvedValue(undefined)
+
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/repos`)
+      .send({
+        githubUrl: 'https://github.com/org/repo',
+        githubCredentialId: 'cred-global',
+        branchNames: ['main'],
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({githubCredentialId: 'cred-global', hasAuthToken: true})
+    expect(gitMocks.cloneRepository).toHaveBeenCalledWith(
+      'https://github.com/org/repo',
+      expect.any(String),
+      'global-secret'
+    )
+  })
+
   it('uses a saved credential when creating a managed clone', async () => {
     const projectId = seedProject(testDb)
     testDb
@@ -209,6 +302,69 @@ describe('POST /api/projects/:projectId/repos', () => {
       'saved-token'
     )
     expect(gitMocks.fetchOrigin).toHaveBeenCalledWith(expect.any(String), 'staging', 'saved-token')
+  })
+})
+
+describe('DELETE /api/repos/:repoId', () => {
+  it('returns 404 for an unknown repository', async () => {
+    const res = await request(app).delete('/api/repos/missing-repo')
+
+    expect(res.status).toBe(404)
+    expect(res.body.error).toBe('Repository not found')
+  })
+
+  it('deletes an unused managed clone folder from disk', async () => {
+    const projectId = seedProject(testDb)
+    const repoPath = join(config.managedReposPath, 'delete-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-managed', localPath: repoPath})
+    testDb
+      .prepare("UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id = ?")
+      .run('https://github.com/org/repo', 'repo-managed')
+
+    const res = await request(app).delete('/api/repos/repo-managed')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(false)
+  })
+
+  it('keeps a managed clone folder if another repository still references it', async () => {
+    const projectId = seedProject(testDb)
+    const otherProjectId = seedProject(testDb, 'proj-2', 'Other Project')
+    const repoPath = join(config.managedReposPath, 'shared-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-managed-1', localPath: repoPath})
+    seedRepo(testDb, otherProjectId, {id: 'repo-managed-2', localPath: repoPath})
+    testDb
+      .prepare(
+        "UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id IN (?, ?)"
+      )
+      .run('https://github.com/org/repo', 'repo-managed-1', 'repo-managed-2')
+
+    const res = await request(app).delete('/api/repos/repo-managed-1')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(true)
+    rmSync(repoPath, {recursive: true, force: true})
+  })
+
+  it('does not delete managed clone paths outside the managed repos directory', async () => {
+    const projectId = seedProject(testDb)
+    const repoPath = join(config.managedReposPath, '..', 'outside-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-outside-managed', localPath: repoPath})
+    testDb
+      .prepare("UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id = ?")
+      .run('https://github.com/org/repo', 'repo-outside-managed')
+
+    const res = await request(app).delete('/api/repos/repo-outside-managed')
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(true)
+    rmSync(repoPath, {recursive: true, force: true})
   })
 })
 
@@ -314,5 +470,31 @@ describe('GET /api/projects/:projectId/repos', () => {
       analysisCursor: 'none',
     })
     expect(gitMocks.getCommitsSince).toHaveBeenCalledWith('/fake/path', 'main', null)
+  })
+
+  it('returns the latest active branch commit with a GitHub URL', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1'})
+    testDb
+      .prepare('UPDATE repositories SET github_url = ? WHERE id = ?')
+      .run('git@github.com:org/repo.git', 'repo-1')
+    gitMocks.getCommitsSince.mockResolvedValue([])
+    gitMocks.getLatestCommit.mockResolvedValue({
+      hash: '0123456789abcdef',
+      shortHash: '0123456',
+      author: 'Ada',
+      date: '2026-05-04 08:10:00 +0000',
+      message: 'Ship repository status metadata',
+    })
+
+    const res = await request(app).get(`/api/projects/${projectId}/repos`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data[0].latestCommit).toMatchObject({
+      hash: '0123456789abcdef',
+      shortHash: '0123456',
+      url: 'https://github.com/org/repo/commit/0123456789abcdef',
+    })
+    expect(gitMocks.getLatestCommit).toHaveBeenCalledWith('/fake/path', 'main')
   })
 })

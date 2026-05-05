@@ -24,11 +24,17 @@ CREATE TABLE IF NOT EXISTS repositories (
 
 CREATE TABLE IF NOT EXISTS github_credentials (
   id         TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   token      TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(project_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS repository_branches (
@@ -53,6 +59,7 @@ CREATE TABLE IF NOT EXISTS test_sets (
   ai_summary    TEXT,
   regressions   TEXT,
   cross_impacts TEXT,
+  is_empty_review INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at  TEXT
 );
@@ -99,6 +106,7 @@ CREATE TABLE IF NOT EXISTS tests (
 
 CREATE INDEX IF NOT EXISTS idx_repos_project ON repositories(project_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_project ON github_credentials(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_global_name ON github_credentials(name) WHERE project_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_repo_branches_repo ON repository_branches(repository_id);
 CREATE INDEX IF NOT EXISTS idx_repo_branches_active ON repository_branches(repository_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_test_sets_project ON test_sets(project_id);

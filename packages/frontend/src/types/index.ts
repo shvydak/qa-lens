@@ -20,14 +20,46 @@ export interface Repository {
   activeBranch: RepositoryBranch | null
   unanalyzedCount?: number
   analysisCursor?: 'active' | 'baseline' | 'none'
+  latestCommit?: {
+    hash: string
+    shortHash: string
+    author: string
+    date: string
+    message: string
+    url: string | null
+  } | null
 }
 
 export interface GitHubCredential {
   id: string
-  projectId: string
+  projectId: string | null
+  scope: 'project' | 'global'
   name: string
   hasToken: boolean
   createdAt: string
+}
+
+export type AIProviderId = 'claude' | 'gemini' | 'cursor' | 'anthropic'
+export type CLIModelProviderId = Extract<AIProviderId, 'claude' | 'gemini' | 'cursor'>
+
+export interface AIProviderInfo {
+  id: AIProviderId
+  label: string
+  available: boolean
+  reason?: string
+}
+
+export interface AIModelOption {
+  id: string
+  label: string
+  source: 'known' | 'configured' | 'saved'
+}
+
+export interface AppSettings {
+  defaultAiProvider: AIProviderId | null
+  aiProviderModels: Record<CLIModelProviderId, string | null>
+  aiModelOptions: Record<CLIModelProviderId, AIModelOption[]>
+  availableProviders: AIProviderInfo[]
 }
 
 export interface RepositoryBranch {
@@ -45,6 +77,14 @@ export interface RemoteBranch {
   commitHash: string
 }
 
+export interface ChecklistCounts {
+  total: number
+  pass: number
+  fail: number
+  skip: number
+  notTested: number
+}
+
 export interface TestSet {
   id: string
   projectId: string
@@ -52,6 +92,7 @@ export interface TestSet {
   branchSignature: string | null
   name: string
   status: 'active' | 'passed' | 'failed'
+  isEmptyReview: boolean
   commitRanges: Record<string, {from: string | null; to: string}>
   commitTargets?: TestSetCommitTarget[]
   aiSummary: string | null
@@ -61,6 +102,7 @@ export interface TestSet {
   completedAt: string | null
   analysisRunCount?: number
   latestAnalysisRunAt?: string | null
+  checklistCounts?: ChecklistCounts
   tests?: Test[]
   analysisRuns?: AnalysisRun[]
 }
@@ -106,5 +148,8 @@ export interface Test {
 export interface AnalysisStatus {
   running: boolean
   testSetId: string | null
+  addedTests: number | null
+  totalTests: number | null
+  isEmptyReview: boolean | null
   error: string | null
 }

@@ -30,6 +30,8 @@ npm run build
 npm start
 ```
 
+**Linting:** Use root `npm run lint`; `packages/backend` has no standalone `lint` script.
+
 **Git hooks (husky):** pre-commit runs format + lint + type-check; pre-push also runs tests.
 Set `SKIP_PRECOMMIT=1` or `SKIP_PREPUSH=1` to bypass. Set `SKIP_TESTS=1` to skip tests on push.
 
@@ -56,7 +58,13 @@ beforeEach(() => {
 
 Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
+When adding a new router in `index.ts`, also register it in `src/__tests__/helpers/app.ts` — `createTestApp` is a separate mount point, so route tests will 404 otherwise.
+
+`config` (from `src/config.ts`) is a plain mutable object; per-test override values directly in `beforeEach` (e.g. `config.anthropicApiKey = 'test-key'`) instead of mocking the module.
+
 Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes/repositories.test.ts`.
+
+Managed repo deletion tests: cover folder cleanup on repo/project delete, shared-path preservation, outside-`MANAGED_REPOS_PATH` guard, unknown repo `404`, and failed clone/setup cleanup.
 
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
@@ -77,7 +85,8 @@ npm workspaces monorepo with two packages:
 **Services:**
 
 - `GitService.ts` — all git operations via `execFile` (never shell string interpolation). Uses `origin/<branch>` for remote HEAD, falls back to local HEAD.
-- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Response is always parsed as JSON matching `AIAnalysisOutput`.
+- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Cursor CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Cursor CLI detects both `agent` (official installer) and `cursor-agent` (Homebrew cask), runs with `--mode ask`, `--output-format json`, and `--workspace config.managedReposPath`, then parses `.result`. Claude/Gemini/Cursor CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`, `ai_model_cursor`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`. `parseAIJson` strips ````json` fences AND extracts the first balanced `{…}` block as a fallback — Claude CLI sometimes prefaces the JSON with prose like "I have enough information…" despite the prompt instruction; do not remove this fallback. Feed prompts to CLIs via `writePromptToStdin()` rather than `child.stdin.end(prompt)` directly — large diffs exceed macOS `ARG_MAX` (~256KB), and `writePromptToStdin()` ignores `EPIPE` when a CLI exits before reading stdin. Timeout is 300s. On non-zero exit, extract `e.code`/`e.signal`/`e.stderr`/`e.stdout` from the `execFile` error and rethrow with details — `Error.message` alone shows only the command line.
+- `SettingsService.ts` — detects AI provider availability and exposes selectable CLI model options. For Claude, prefer Claude Code aliases (`sonnet`, `sonnet[1m]`, `opus`, `opus[1m]`, `haiku`) instead of pinned model IDs so the installed Claude Code CLI resolves to the current supported models. For Cursor, available model IDs depend on the authenticated Cursor account/team policy; support `AI_MODELS_CURSOR` and saved custom values.
 - `AnalysisService.ts` — orchestrates the full analysis cycle: gather diffs from all repos in parallel → call AI → persist `TestSet` + `Test` rows in a single transaction. Tracks in-flight jobs in a `Map<projectId, job>` (in-memory, resets on restart). `markTestSetPassed()` updates `last_analyzed_commit_hash` for every repo in the test set's `commit_ranges` in a single transaction.
 - `PollingService.ts` — runs `git fetch` for every repo every 60s using `Promise.allSettled` (one failure doesn't block others).
 - `prompts/analysis.ts` — the AI prompt template. Edit this to tune analysis quality without touching service logic.
@@ -85,6 +94,8 @@ npm workspaces monorepo with two packages:
 **DB:** Schema is in `src/db/schema.sql` and applied idempotently on startup (`CREATE TABLE IF NOT EXISTS`). No migration runner — re-running schema is safe. `commit_ranges`, `regressions`, and `cross_impacts` columns are stored as JSON strings. `repositories` has `UNIQUE(project_id, local_path)` — use distinct `localPath` per repo when seeding tests.
 
 **Managed GitHub repos:** Repositories can be `source_type='managed_clone'`; QA Lens clones GitHub repos into `MANAGED_REPOS_PATH` and must not touch user working directories.
+
+**Managed clone lifecycle:** Repository creation is GitHub-only (`githubUrl` required); do not accept user `localPath`. Delete managed clone folders via `ManagedRepoStorage` only when no DB rows still reference the path, and only inside `MANAGED_REPOS_PATH`.
 
 **Repository branches:** `repository_branches` is the analysis target layer; each branch has its own `status`, `is_active`, `last_fetched_at`, and `last_analyzed_commit_hash`.
 
@@ -97,6 +108,10 @@ npm workspaces monorepo with two packages:
 **Route responses** always wrap in `{ data: T }` on success, `{ error: string }` on failure.
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives `status: 'passed'`, it must call `markTestSetPassed()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
+
+**Empty reviews:** When AI returns 0 tests, `AnalysisService.run()` still creates (or extends) a test set so the analyzed commit range is recorded. Initial 0-test sets get `is_empty_review=1` and the UI shows a "Mark as reviewed" button instead of "Mark as Passed" — both call `markTestSetPassed()`. Updates that add 0 tests still extend `commit_ranges` and insert an empty `analysis_run` (label "Update YYYY-MM-DD"). Frontend treats a set as empty-review only when `isEmptyReview && tests.length === 0`, so adding a manual test transitions it back to the normal flow without DB changes.
+
+**Analyze status response:** `GET /api/projects/:id/analyze/status` returns `addedTests`, `totalTests`, `isEmptyReview`. UI uses `addedTests === 0 && totalTests > 0` to skip navigation and show an inline "no new tests" notice on `ProjectDetailPage` instead.
 
 **Analysis cursor:** `commit_ranges` is keyed by `repositoryBranchId` for new analyses; keep legacy `repoId` fallback only for old data. Passing or rewinding a test set updates `last_analyzed_commit_hash` independently for each tracked branch.
 
@@ -112,7 +127,15 @@ npm workspaces monorepo with two packages:
 
 **SQLite migrations:** For columns added via `ensureColumn()`, create dependent indexes after `ensureColumn()` in `runMigrations()`, not in the initial `schema.sql` exec.
 
+**Migrations + tests:** `createTestDb()` applies `schema.sql` directly and does NOT run `runMigrations()`. When you add a column via `ensureColumn()`, also add it to the corresponding `CREATE TABLE` in `schema.sql`, otherwise route/service tests fail with `no such column: …`.
+
+**Changing column constraints (e.g. NOT NULL → nullable):** SQLite has no `ALTER COLUMN`; recreate the table inside `runMigrations()` (`CREATE TABLE …_new` → `INSERT SELECT` → `DROP` → `RENAME`), guarded by a `PRAGMA table_info` check so it runs only once. Re-create indexes after the rename.
+
+**Nullable + UNIQUE columns:** SQLite treats NULLs as distinct in `UNIQUE(a, b)`, so two rows with `a IS NULL` and the same `b` both pass. For "global" scope (nullable FK) uniqueness, add a partial unique index: `CREATE UNIQUE INDEX … ON t(b) WHERE a IS NULL`.
+
 **Managed repo storage:** Keep `packages/managed-repos/` ignored by git and ESLint; cloned customer repos are input data, not QA Lens source.
+
+**Cursor provider repo scope:** Cursor CLI analysis only supports managed GitHub clones under `MANAGED_REPOS_PATH`; keep the managed-path guard so arbitrary local repos are not analyzed through Cursor.
 
 **Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 
@@ -121,6 +144,14 @@ npm workspaces monorepo with two packages:
 **Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.
 
 **Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
+
+**TestSet DTO / `checklistCounts`:** `GET /api/projects/:id/test-sets` adds per-row aggregates via SQL subqueries on `tests`; `GET /api/test-sets/:id` derives counts from loaded tests; `PATCH` (and other `SELECT *` rows) uses `fetchChecklistCounts` in `routes/testSets.ts` when list-query aliases are absent.
+
+`**Array#map` + DTO mappers:\*\* If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
+
+**AI debug dump:** Run backend with `AI_DEBUG_DUMP=1` to write each AI call's `prompt.txt`, `response.json`, and `meta.json` to `packages/backend/.ai-debug/` (gitignored). Use this to inspect what the model actually received and returned without modifying production code paths. `meta.json` records `requestedModel` (Settings selection) and `usedModels` (from `modelUsage` in CLI wrapper) — proves which model executed.
+
+**AIService provider tests:** Mock `child_process.execFile` with `vi.hoisted` plus `Symbol.for('nodejs.util.promisify.custom')`; cover Cursor JSON `.result` parsing, managed-path guard, and stdin `EPIPE`.
 
 ### Frontend
 
@@ -142,22 +173,34 @@ npm workspaces monorepo with two packages:
 
 **Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
 
-**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`); UI may group history by `analysisContextId` / `branchSignature`.
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), `**checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. `**TestSetCard**`renders the segmented checklist bar;`**ProjectDetailPage**`passes`**executionUpdating\*\*`when`analysisStatus.running && activeTestSet?.id === ts.id`.
+
+**Active project context:** `src/contexts/ActiveProjectContext.tsx` tracks `activeProjectId` and `testSetVersion`. Pages call `setActiveProjectId(id)` on mount; `invalidateTestSets()` triggers a sidebar re-fetch of test sets — call it after any mutation that changes `checklistCounts` (e.g. test status updates).
+
+**Sidebar navigation:** `AppShell` renders a persistent project list and test sets under the active project. Re-fetches both on `location.pathname` changes + `testSetVersion`. Sidebar test sets show a segmented progress bar reusing the `ChecklistCounts` color scheme.
+
+**Sidebar width coupling:** sidebar is `w-56`; `TestSetPage`'s fixed bottom bar uses `left-56` to match. If sidebar width changes, update both.
+
+**Breadcrumbs:** pages use inline `<nav>` breadcrumbs instead of back buttons. `TestSetPage` fetches parent project name separately (via `GET /api/projects/:projectId`) for display in the breadcrumb.
 
 ## Environment
 
 Key variables:
 
-| Variable             | Default                   | Purpose                                                |
-| -------------------- | ------------------------- | ------------------------------------------------------ |
-| `PORT`               | `3001`                    | Backend port                                           |
-| `DB_PATH`            | `packages/qa-lens.db`     | SQLite file location                                   |
-| `MANAGED_REPOS_PATH` | `packages/managed-repos`  | Internal clone storage for GitHub-managed repositories |
-| `CLIENT_ORIGIN`      | `http://localhost:5173`   | Allowed CORS origin for the backend                    |
-| `VITE_API_URL`       | `http://localhost:3001`   | Frontend API base URL                                  |
-| `AI_PROVIDERS`       | `claude,gemini,anthropic` | Provider order for waterfall                           |
-| `ANTHROPIC_API_KEY`  | —                         | Required only if `anthropic` provider is used          |
+| Variable             | Default                          | Purpose                                                |
+| -------------------- | -------------------------------- | ------------------------------------------------------ |
+| `PORT`               | `3001`                           | Backend port                                           |
+| `DB_PATH`            | `packages/qa-lens.db`            | SQLite file location                                   |
+| `MANAGED_REPOS_PATH` | `packages/managed-repos`         | Internal clone storage for GitHub-managed repositories |
+| `CLIENT_ORIGIN`      | `http://localhost:5173`          | Allowed CORS origin for the backend                    |
+| `VITE_API_URL`       | `http://localhost:3001`          | Frontend API base URL                                  |
+| `AI_PROVIDERS`       | `claude,gemini,cursor,anthropic` | Provider order for waterfall                           |
+| `AI_MODELS_CLAUDE`   | —                                | Extra Claude CLI model choices shown in Settings       |
+| `AI_MODELS_GEMINI`   | —                                | Extra Gemini CLI model choices shown in Settings       |
+| `AI_MODELS_CURSOR`   | —                                | Extra Cursor CLI model choices shown in Settings       |
+| `ANTHROPIC_API_KEY`  | —                                | Required only if `anthropic` provider is used          |
+| `AI_DEBUG_DUMP`      | —                                | When set, dump prompt/response/meta to `.ai-debug/`    |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 
-For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI.
+For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI. Prefer Claude Code model aliases over pinned IDs when adding model choices; aliases track the latest models supported by the installed CLI.

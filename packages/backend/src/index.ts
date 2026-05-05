@@ -9,6 +9,7 @@ import {testSetsRouter, testSetActionsRouter} from './routes/testSets.js'
 import {testsRouter, testActionsRouter} from './routes/tests.js'
 import * as PollingService from './services/PollingService.js'
 import {utilsRouter} from './routes/utils.js'
+import {settingsRouter} from './routes/settings.js'
 
 const app = express()
 
@@ -24,6 +25,7 @@ app.use('/api/test-sets', testSetActionsRouter)
 app.use('/api/test-sets/:testSetId/tests', testsRouter)
 app.use('/api/tests', testActionsRouter)
 app.use('/api/utils', utilsRouter)
+app.use('/api/settings', settingsRouter)
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err)

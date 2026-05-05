@@ -24,7 +24,7 @@ export default function ProjectsPage() {
 
   const deleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm('Delete project? This action cannot be undone.')) return
+    if (!window.confirm('Delete this project and all related data? This cannot be undone.')) return
     await apiFetch('DELETE', `/api/projects/${id}`)
     setProjects((p) => p.filter((x) => x.id !== id))
   }
@@ -154,6 +154,7 @@ function ProjectCard({
       <div className="flex items-start justify-between gap-3 mb-3">
         <h3 className="font-semibold text-gray-100 text-base leading-snug">{project.name}</h3>
         <button
+          type="button"
           onClick={onDelete}
           className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition-all">
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none">

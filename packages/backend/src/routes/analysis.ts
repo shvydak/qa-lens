@@ -6,7 +6,15 @@ import {ulid} from '../utils/ulid.js'
 
 export const analysisRouter = Router({mergeParams: true})
 
-const results = new Map<string, {testSetId?: string; error?: string}>()
+interface AnalysisJobResult {
+  testSetId?: string
+  addedTests?: number
+  totalTests?: number
+  isEmptyReview?: boolean
+  error?: string
+}
+
+const results = new Map<string, AnalysisJobResult>()
 
 analysisRouter.post('/', async (req, res) => {
   const {projectId} = req.params as {projectId: string}
@@ -22,8 +30,8 @@ analysisRouter.post('/', async (req, res) => {
   res.status(202).json({data: {jobId, status: 'running'}})
 
   AnalysisService.run({projectId, repoIds, startedAt: new Date().toISOString()})
-    .then(({testSetId}) => {
-      results.set(projectId, {testSetId})
+    .then(({testSetId, addedTests, totalTests, isEmptyReview}) => {
+      results.set(projectId, {testSetId, addedTests, totalTests, isEmptyReview})
     })
     .catch((err: unknown) => {
       let message = 'Analysis failed'
@@ -46,6 +54,9 @@ analysisRouter.get('/status', (req, res) => {
     data: {
       running,
       testSetId: result?.testSetId ?? null,
+      addedTests: result?.addedTests ?? null,
+      totalTests: result?.totalTests ?? null,
+      isEmptyReview: result?.isEmptyReview ?? null,
       error: result?.error ?? null,
     },
   })

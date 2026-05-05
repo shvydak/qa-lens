@@ -26,6 +26,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# AI debug dumps (enabled via AI_DEBUG_DUMP=1)
+.ai-debug/
+
 # TypeScript
 *.tsbuildinfo
 

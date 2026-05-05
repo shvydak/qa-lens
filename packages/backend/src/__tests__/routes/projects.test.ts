@@ -1,7 +1,10 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
-import {createTestDb, seedProject} from '../helpers/db.js'
+import {existsSync, mkdirSync, rmSync} from 'fs'
+import {join} from 'path'
+import {config} from '../../config.js'
+import {createTestDb, seedProject, seedRepo} from '../helpers/db.js'
 
 let testDb: Database.Database
 
@@ -103,5 +106,21 @@ describe('DELETE /api/projects/:id', () => {
 
     const check = await request(app).get(`/api/projects/${projectId}`)
     expect(check.status).toBe(404)
+  })
+
+  it('deletes managed clone folders owned by the project', async () => {
+    const projectId = seedProject(testDb)
+    const repoPath = join(config.managedReposPath, 'delete-project-managed-repo-test')
+    rmSync(repoPath, {recursive: true, force: true})
+    mkdirSync(repoPath, {recursive: true})
+    seedRepo(testDb, projectId, {id: 'repo-managed', localPath: repoPath})
+    testDb
+      .prepare("UPDATE repositories SET source_type = 'managed_clone', github_url = ? WHERE id = ?")
+      .run('https://github.com/org/repo', 'repo-managed')
+
+    const res = await request(app).delete(`/api/projects/${projectId}`)
+
+    expect(res.status).toBe(200)
+    expect(existsSync(repoPath)).toBe(false)
   })
 })

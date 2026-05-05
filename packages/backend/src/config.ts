@@ -9,10 +9,13 @@ export const config = {
   dbPath: process.env.DB_PATH || join(__dirname, '../../qa-lens.db'),
   managedReposPath: process.env.MANAGED_REPOS_PATH || join(__dirname, '../../managed-repos'),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
-  aiProviders: (process.env.AI_PROVIDERS || 'claude,gemini,anthropic').split(',') as AIProvider[],
+  aiProviders: (process.env.AI_PROVIDERS || 'claude,gemini,cursor,anthropic').split(
+    ','
+  ) as AIProvider[],
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   gitFetchIntervalMs: 60_000,
   maxDiffBytes: 80_000,
 }
 
-export type AIProvider = 'claude' | 'gemini' | 'anthropic'
+export type AIProvider = 'claude' | 'gemini' | 'cursor' | 'anthropic'
+export type CLIModelProvider = Extract<AIProvider, 'claude' | 'gemini' | 'cursor'>

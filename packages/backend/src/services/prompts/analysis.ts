@@ -51,11 +51,13 @@ Analyze all changes across ALL repositories simultaneously. Focus on:
 3. Cross-repository impacts (e.g., backend change → check the related frontend flow)
 4. Integration points between services
 
-You have access to the repository files via the --add-dir tool. Use it to:
-- Read surrounding code to understand the context of changes
-- Check if changed API endpoints are used in other repos
-- Look at related test files to understand expected behavior
-- Trace data flow across services
+You have access to the repository files at the paths listed in each repository section. You MUST use file-reading and search tools to:
+- Read surrounding code to understand the context of changes.
+- Verify whether a changed function, endpoint, route path, or constant is actually referenced in the in-scope client repos before creating tests for it. Grep by route path, function name, and any constant that maps to the path.
+- Look at related test files to understand expected behavior.
+- Trace data flow across services.
+
+If grep finds ZERO references of a changed endpoint/function in the in-scope client repos, do NOT create tests for that change. Speculation is not allowed: if your justification for a test contains "if the app uses this", "may affect", "might be called by", or similar, omit the test. Returning fewer (or zero) tests is correct when the changes do not reach the in-scope clients.
 
 ## Audience:
 The output is for manual QA engineers. They do not read code and may not know technical terms.
@@ -90,13 +92,16 @@ Output ONLY valid JSON matching this exact schema:
 }
 
 Rules:
-- tests array: 5-20 items, sorted by priority (high first)
+- tests array: 0-20 items, sorted by priority (high first). 0 tests is the correct answer when no changes reach the in-scope clients — do NOT pad the list to meet a minimum.
 - Every test must have 3-8 manual steps.
 - Every test must have a clear expected_result.
+- Treat Project Architecture & Context as the source of truth for product scope.
+- Do not create tests for clients, platforms, apps, or workflows that are marked out of scope in Project Architecture & Context.
+- If a shared backend change affects both in-scope and out-of-scope clients, write tests only for the in-scope client AND only after grep-verifying the in-scope client actually consumes the changed endpoint/function. If only out-of-scope clients consume it, return no tests for that change and note this in "summary".
 - Prefer user workflows over implementation details.
 - Good: "Create an order with a discount and check the total price."
 - Bad: "Test POST /api/orders with discount_code field."
 - regressions: focus on things that WORKED BEFORE but could break
 - cross_repo_impacts: only include if you found actual shared code/endpoints between repos
-- Output ONLY the JSON object, no markdown, no explanation`
+- Output ONLY the JSON object. No preface, no thinking-out-loud, no markdown fences, no closing remarks. The first character of your response MUST be \`{\` and the last character MUST be \`}\`.`
 }

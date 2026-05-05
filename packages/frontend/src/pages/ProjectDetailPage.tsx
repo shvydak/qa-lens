@@ -2,6 +2,7 @@ import {useState, useEffect, useCallback, useRef} from 'react'
 import {useParams, useNavigate, Link} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
 import type {Project, Repository, TestSet, AnalysisStatus, RemoteBranch} from '../types/index.ts'
+import {useActiveProject} from '../contexts/ActiveProjectContext.tsx'
 import RepoCard from '../components/repositories/RepoCard.tsx'
 import RepoForm from '../components/repositories/RepoForm.tsx'
 import AnalysisPanel from '../components/testSets/AnalysisPanel.tsx'
@@ -10,6 +11,11 @@ import TestSetCard from '../components/testSets/TestSetCard.tsx'
 export default function ProjectDetailPage() {
   const {id} = useParams<{id: string}>()
   const navigate = useNavigate()
+  const {setActiveProjectId} = useActiveProject()
+
+  useEffect(() => {
+    setActiveProjectId(id ?? null)
+  }, [id, setActiveProjectId])
 
   const [project, setProject] = useState<Project | null>(null)
   const [repos, setRepos] = useState<Repository[]>([])
@@ -17,8 +23,12 @@ export default function ProjectDetailPage() {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>({
     running: false,
     testSetId: null,
+    addedTests: null,
+    totalTests: null,
+    isEmptyReview: null,
     error: null,
   })
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const [showRepoForm, setShowRepoForm] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState('')
@@ -91,7 +101,12 @@ export default function ProjectDetailPage() {
       if (navigateOnComplete && !data.running && data.testSetId) {
         clearInterval(analysisPollRef.current!)
         await loadTestSets()
-        navigate(`/test-sets/${data.testSetId}`)
+        // Update on existing set that produced 0 new tests: stay here, show notice.
+        if (data.addedTests === 0 && (data.totalTests ?? 0) > 0) {
+          setAnalysisNotice('No new relevant tests for this update.')
+        } else {
+          navigate(`/test-sets/${data.testSetId}`)
+        }
       }
       if (!data.running && data.error) {
         clearInterval(analysisPollRef.current!)
@@ -127,13 +142,24 @@ export default function ProjectDetailPage() {
 
   const startAnalysis = async () => {
     if (!id || analysisDisabled) return
-    setAnalysisStatus({running: true, testSetId: null, error: null})
+    setAnalysisNotice(null)
+    setAnalysisStatus({
+      running: true,
+      testSetId: null,
+      addedTests: null,
+      totalTests: null,
+      isEmptyReview: null,
+      error: null,
+    })
     try {
       await apiFetch('POST', `/api/projects/${id}/analyze`, {})
     } catch (err) {
       setAnalysisStatus({
         running: false,
         testSetId: null,
+        addedTests: null,
+        totalTests: null,
+        isEmptyReview: null,
         error: err instanceof Error ? err.message : 'Error',
       })
       return
@@ -240,20 +266,13 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <Link
-        to="/"
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path
-            d="M9 2L4 7l5 5"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        Projects
-      </Link>
+      <nav className="flex items-center gap-1.5 text-sm mb-6">
+        <Link to="/" className="text-gray-500 hover:text-gray-300 transition-colors">
+          Projects
+        </Link>
+        <span className="text-gray-700">›</span>
+        <span className="text-gray-400">{project.name}</span>
+      </nav>
 
       <div className="mb-7 rounded-2xl border border-gray-800/60 bg-gray-900/50 p-5 shadow-2xl shadow-black/10">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -355,6 +374,43 @@ export default function ProjectDetailPage() {
               activeMode={Boolean(activeTestSet)}
               onAnalyze={startAnalysis}
             />
+            {analysisNotice && !analysisStatus.running && (
+              <div className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-gray-700/50 bg-gray-900/60 px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    className="mt-0.5 flex-shrink-0 text-gray-500">
+                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+                    <path
+                      d="M7 4.5v3M7 9.5v.5"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="text-xs text-gray-400">
+                    <p className="text-gray-300">{analysisNotice}</p>
+                    {analysisStatus.testSetId && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/test-sets/${analysisStatus.testSetId}`)}
+                        className="mt-1 text-indigo-400 hover:text-indigo-300">
+                        View details →
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisNotice(null)}
+                  className="text-gray-600 hover:text-gray-400 text-xs">
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {testSets.length > 0 && (
@@ -401,7 +457,12 @@ export default function ProjectDetailPage() {
                     </div>
                     <div className="space-y-2">
                       {group.testSets.map((ts) => (
-                        <TestSetCard key={ts.id} testSet={ts} showTargets={false} />
+                        <TestSetCard
+                          key={ts.id}
+                          testSet={ts}
+                          showTargets={false}
+                          executionUpdating={analysisStatus.running && activeTestSet?.id === ts.id}
+                        />
                       ))}
                     </div>
                   </section>

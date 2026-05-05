@@ -23,13 +23,21 @@ interface ActiveTestSetRow {
   ai_summary: string | null
   regressions: string | null
   cross_impacts: string | null
+  is_empty_review: number
 }
 
 export function getRunningJob(projectId: string): AnalysisJob | null {
   return runningJobs.get(projectId) ?? null
 }
 
-export async function run(job: AnalysisJob): Promise<{testSetId: string}> {
+export interface AnalysisResult {
+  testSetId: string
+  addedTests: number
+  totalTests: number
+  isEmptyReview: boolean
+}
+
+export async function run(job: AnalysisJob): Promise<AnalysisResult> {
   if (runningJobs.has(job.projectId)) {
     throw new Error('Analysis already running for this project')
   }
@@ -43,7 +51,7 @@ export async function run(job: AnalysisJob): Promise<{testSetId: string}> {
   }
 }
 
-async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
+async function _run(job: AnalysisJob): Promise<AnalysisResult> {
   const db = getDb()
 
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(job.projectId) as
@@ -79,7 +87,7 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
     (db
       .prepare(
         `
-        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts
+        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts, is_empty_review
         FROM test_sets
         WHERE project_id = ? AND analysis_context_id = ? AND status = 'active'
         ORDER BY created_at DESC, rowid DESC
@@ -90,7 +98,7 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
     (db
       .prepare(
         `
-        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts
+        SELECT id, name, analysis_context_id, commit_ranges, ai_summary, regressions, cross_impacts, is_empty_review
         FROM test_sets
         WHERE project_id = ? AND analysis_context_id IS NULL AND status = 'active'
         ORDER BY created_at DESC, rowid DESC
@@ -156,7 +164,14 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
   const analysisRunLabel = activeTestSet ? `Update ${dateStr}` : `Initial analysis ${dateStr}`
   const singleRepositoryBranchId = diffs.length === 1 ? diffs[0].repositoryBranchId : null
 
+  const addedTests = aiOutput.tests.length
+
   if (activeTestSet) {
+    const previousCount = (
+      db.prepare('SELECT COUNT(*) AS c FROM tests WHERE test_set_id = ?').get(activeTestSet.id) as {
+        c: number
+      }
+    ).c
     const nextSortOrder = (
       db
         .prepare(
@@ -199,17 +214,27 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
         commitRanges,
         aiOutput.summary
       )
-      insertAiTests(
-        activeTestSet.id,
-        aiOutput.tests,
-        nextSortOrder,
-        analysisRunId,
-        singleRepositoryBranchId
-      )
+      if (addedTests > 0) {
+        insertAiTests(
+          activeTestSet.id,
+          aiOutput.tests,
+          nextSortOrder,
+          analysisRunId,
+          singleRepositoryBranchId
+        )
+      }
     })()
 
-    return {testSetId: activeTestSet.id}
+    const totalTests = previousCount + addedTests
+    return {
+      testSetId: activeTestSet.id,
+      addedTests,
+      totalTests,
+      isEmptyReview: activeTestSet.is_empty_review === 1 && totalTests === 0,
+    }
   }
+
+  const isEmptyReview = addedTests === 0
 
   db.transaction(() => {
     db.prepare(
@@ -222,9 +247,10 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
         commit_ranges,
         ai_summary,
         regressions,
-        cross_impacts
+        cross_impacts,
+        is_empty_review
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     ).run(
       testSetId,
@@ -234,14 +260,17 @@ async function _run(job: AnalysisJob): Promise<{testSetId: string}> {
       JSON.stringify(commitRanges),
       aiOutput.summary,
       JSON.stringify(aiOutput.regressions),
-      JSON.stringify(aiOutput.cross_repo_impacts)
+      JSON.stringify(aiOutput.cross_repo_impacts),
+      isEmptyReview ? 1 : 0
     )
 
     insertAnalysisRun(analysisRunId, testSetId, analysisRunLabel, commitRanges, aiOutput.summary)
-    insertAiTests(testSetId, aiOutput.tests, 0, analysisRunId, singleRepositoryBranchId)
+    if (addedTests > 0) {
+      insertAiTests(testSetId, aiOutput.tests, 0, analysisRunId, singleRepositoryBranchId)
+    }
   })()
 
-  return {testSetId}
+  return {testSetId, addedTests, totalTests: addedTests, isEmptyReview}
 }
 
 function insertAiTests(

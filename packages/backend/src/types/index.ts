@@ -21,6 +21,7 @@ export interface Repository {
   activeBranch?: RepositoryBranch | null
   unanalyzedCount?: number
   analysisCursor?: 'active' | 'baseline' | 'none'
+  latestCommit?: CommitInfo & {url: string | null}
 }
 
 export interface GitHubCredential {

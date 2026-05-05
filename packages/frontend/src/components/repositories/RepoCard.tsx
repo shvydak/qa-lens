@@ -11,14 +11,51 @@ function repoName(path: string): string {
   return parts[parts.length - 1] ?? path
 }
 
+function formatRelativeDate(value: string): string {
+  const date = new Date(value)
+  const diffMs = date.getTime() - Date.now()
+  const divisions = [
+    {amount: 60, unit: 'second'},
+    {amount: 60, unit: 'minute'},
+    {amount: 24, unit: 'hour'},
+    {amount: 7, unit: 'day'},
+    {amount: 4.345, unit: 'week'},
+    {amount: 12, unit: 'month'},
+    {amount: Number.POSITIVE_INFINITY, unit: 'year'},
+  ] as const
+  const formatter = new Intl.RelativeTimeFormat('en', {numeric: 'auto'})
+  let duration = diffMs / 1000
+
+  for (const division of divisions) {
+    if (Math.abs(duration) < division.amount) {
+      return formatter.format(Math.round(duration), division.unit)
+    }
+    duration /= division.amount
+  }
+
+  return date.toLocaleDateString('en-US')
+}
+
+function formatCommitDate(value: string): string {
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function LiveSyncDot({
   okAt,
   listError,
   fetchError,
+  latestCommitTitle,
 }: {
   okAt: number | null
   listError: string | null
   fetchError?: string | null
+  latestCommitTitle?: string
 }) {
   const error = fetchError ?? listError
   const healthy = Boolean(okAt) && !error
@@ -30,7 +67,9 @@ function LiveSyncDot({
         error
           ? error
           : healthy
-            ? 'Repositories auto-refresh is running'
+            ? latestCommitTitle
+              ? `Repositories auto-refresh is running\n${latestCommitTitle}`
+              : 'Repositories auto-refresh is running'
             : 'Waiting for the first refresh'
       }>
       {healthy && (
@@ -75,6 +114,11 @@ export default function RepoCard({
   const analysisCursor = repo.analysisCursor ?? (repo.lastAnalyzedCommitHash ? 'baseline' : 'none')
   const hasNew = (repo.unanalyzedCount ?? 0) > 0
   const activeBranch = repo.activeBranch
+  const latestCommitTitle = repo.latestCommit
+    ? `Last commit: ${repo.latestCommit.shortHash} · ${formatCommitDate(repo.latestCommit.date)} · ${
+        activeBranch?.name ?? repo.branch
+      }\n${repo.latestCommit.message}`
+    : undefined
   const [showBranches, setShowBranches] = useState(false)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const branchMenuRef = useRef<HTMLDivElement | null>(null)
@@ -167,8 +211,53 @@ export default function RepoCard({
               </div>
             </div>
             <div className="flex flex-shrink-0 items-center pt-1">
-              <LiveSyncDot okAt={listSyncOkAt} listError={listSyncError} fetchError={fetchError} />
+              <LiveSyncDot
+                okAt={listSyncOkAt}
+                listError={listSyncError}
+                fetchError={fetchError}
+                latestCommitTitle={latestCommitTitle}
+              />
             </div>
+          </div>
+
+          <div className="mt-3 flex min-w-0 items-center gap-2 rounded-lg border border-gray-800/70 bg-gray-950/25 px-2.5 py-2">
+            <span
+              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                hasNew
+                  ? 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.12)]'
+                  : repo.latestCommit
+                    ? 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.1)]'
+                    : 'bg-gray-700'
+              }`}
+            />
+            {repo.latestCommit ? (
+              <div
+                className="flex min-w-0 items-center text-xs text-gray-400"
+                title={latestCommitTitle}>
+                <span className="flex-shrink-0 text-gray-500">Last commit&nbsp;</span>
+                <span className="flex-shrink-0 text-gray-300">
+                  {formatRelativeDate(repo.latestCommit.date)}
+                </span>
+                <span className="flex-shrink-0 px-1.5 text-gray-700">·</span>
+                {repo.latestCommit.url ? (
+                  <a
+                    href={repo.latestCommit.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-shrink-0 font-mono text-indigo-300 transition-colors hover:text-indigo-200 hover:underline">
+                    {repo.latestCommit.shortHash}
+                  </a>
+                ) : (
+                  <span className="flex-shrink-0 font-mono text-gray-300">
+                    {repo.latestCommit.shortHash}
+                  </span>
+                )}
+                <span className="flex-shrink-0 px-1.5 text-gray-700">·</span>
+                <span className="min-w-0 truncate text-gray-500">{repo.latestCommit.message}</span>
+              </div>
+            ) : (
+              <div className="min-w-0 truncate text-xs text-gray-500">Last commit unavailable</div>
+            )}
           </div>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -294,7 +383,17 @@ export default function RepoCard({
                   </svg>
                 </button>
                 <button
-                  onClick={onDelete}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const label = repo.githubUrl ?? repoName(repo.localPath)
+                    if (
+                      !window.confirm(`Remove "${label}" from this project? This cannot be undone.`)
+                    ) {
+                      return
+                    }
+                    onDelete()
+                  }}
                   title="Delete"
                   className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all">
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
