@@ -1,5 +1,7 @@
 import express from 'express'
 import cors from 'cors'
+import {rm, mkdir} from 'node:fs/promises'
+import path from 'node:path'
 import {config} from './config.js'
 import {getDb} from './db/index.js'
 import {projectsRouter} from './routes/projects.js'
@@ -31,6 +33,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err)
   res.status(500).json({error: err.message || 'Internal server error'})
 })
+
+if (process.env.AI_DEBUG_DUMP) {
+  const aiDebugDir = path.resolve(process.cwd(), '.ai-debug')
+  await rm(aiDebugDir, {recursive: true, force: true})
+  await mkdir(aiDebugDir, {recursive: true})
+}
 
 getDb()
 PollingService.start()

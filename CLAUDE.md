@@ -143,7 +143,7 @@ npm workspaces monorepo with two packages:
 
 **Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.
 
-**Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets.
+**Test set deletion:** Plain `DELETE /api/test-sets/:id` removes history only; `?rewind=true` also recomputes each repo's cursor from the latest remaining `passed` test sets. UI always uses `?rewind=true` for `passed` test sets (no plain Delete option) — deleting a passed set without rewind creates a gap in analysis history.
 
 **TestSet DTO / `checklistCounts`:** `GET /api/projects/:id/test-sets` adds per-row aggregates via SQL subqueries on `tests`; `GET /api/test-sets/:id` derives counts from loaded tests; `PATCH` (and other `SELECT *` rows) uses `fetchChecklistCounts` in `routes/testSets.ts` when list-query aliases are absent.
 
