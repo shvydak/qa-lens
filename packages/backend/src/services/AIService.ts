@@ -144,7 +144,7 @@ async function runClaudeCli(prompt: string, repoPaths: string[]): Promise<AIAnal
     ['-p', ...addDirArgs, ...modelArgs, '--output-format', 'json'],
     {timeout: 300_000, maxBuffer: 10 * 1024 * 1024}
   )
-  claudePromise.child.stdin?.end(prompt)
+  writePromptToStdin(claudePromise.child.stdin, prompt)
   let stdout = ''
   try {
     const result = await claudePromise
@@ -210,7 +210,7 @@ async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
     timeout: 300_000,
     maxBuffer: 10 * 1024 * 1024,
   })
-  geminiPromise.child.stdin?.end(prompt)
+  writePromptToStdin(geminiPromise.child.stdin, prompt)
   const {stdout} = await geminiPromise
 
   await dumpAIDebug('gemini', prompt, stdout, {requestedModel: model ?? null})
@@ -222,6 +222,112 @@ async function runGeminiCli(prompt: string): Promise<AIAnalysisOutput> {
   } catch {
     return parseAIJson(stdout)
   }
+}
+
+async function runCursorCli(prompt: string, repoPaths: string[]): Promise<AIAnalysisOutput> {
+  const command = await getCursorCliCommand()
+  if (!command) throw new Error('Cursor CLI agent or cursor-agent not found')
+
+  assertRepoPathsInsideManagedRoot(repoPaths)
+
+  const model = getAIProviderModel('cursor')
+  const modelArgs = model ? ['--model', model] : []
+  const workspace = path.resolve(config.managedReposPath)
+  console.log('[AIService] cursor CLI invoke', {
+    command,
+    model: model ?? '(default)',
+    workspace,
+    repoPaths,
+  })
+  const cursorPromise = execFileAsync(
+    command,
+    [
+      '-p',
+      ...modelArgs,
+      '--output-format',
+      'json',
+      '--mode',
+      'ask',
+      '--trust',
+      '--workspace',
+      workspace,
+    ],
+    {timeout: 300_000, maxBuffer: 10 * 1024 * 1024}
+  )
+  writePromptToStdin(cursorPromise.child.stdin, prompt)
+
+  let stdout = ''
+  try {
+    const result = await cursorPromise
+    stdout = result.stdout as string
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & {
+      stdout?: string | Buffer
+      stderr?: string | Buffer
+      code?: string | number
+      signal?: string
+    }
+    const out = e.stdout?.toString() ?? ''
+    const errOut = e.stderr?.toString() ?? ''
+    await dumpAIDebug('cursor', prompt, out || errOut || e.message, {
+      requestedModel: model ?? null,
+      repoPaths,
+      workspace,
+      failed: true,
+      exitCode: e.code ?? null,
+      signal: e.signal ?? null,
+      stderr: errOut,
+    })
+    const detail =
+      [
+        e.signal ? `signal=${e.signal}` : null,
+        e.code !== undefined ? `code=${e.code}` : null,
+        errOut.trim() ? `stderr: ${errOut.trim().slice(0, 500)}` : null,
+        !errOut.trim() && out.trim() ? `stdout: ${out.trim().slice(0, 500)}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ') || 'no output'
+    throw new Error(`Cursor CLI failed (${detail})`)
+  }
+
+  const wrapper = JSON.parse(stdout.trim())
+  const text = typeof wrapper.result === 'string' ? wrapper.result : stdout
+  await dumpAIDebug('cursor', prompt, stdout, {
+    requestedModel: model ?? null,
+    repoPaths,
+    workspace,
+    sessionId: typeof wrapper.session_id === 'string' ? wrapper.session_id : null,
+  })
+  return parseAIJson(text)
+}
+
+async function getCursorCliCommand(): Promise<string | null> {
+  if (await isCommandAvailable('agent')) return 'agent'
+  if (await isCommandAvailable('cursor-agent')) return 'cursor-agent'
+  return null
+}
+
+function assertRepoPathsInsideManagedRoot(repoPaths: string[]): void {
+  const managedRoot = path.resolve(config.managedReposPath)
+  const outsidePath = repoPaths.find((repoPath) => {
+    const relativePath = path.relative(managedRoot, path.resolve(repoPath))
+    return relativePath.startsWith('..') || path.isAbsolute(relativePath)
+  })
+
+  if (outsidePath) {
+    throw new Error(
+      `Cursor CLI provider only supports managed GitHub repositories inside ${managedRoot}; found ${outsidePath}`
+    )
+  }
+}
+
+function writePromptToStdin(stdin: NodeJS.WritableStream | null | undefined, prompt: string): void {
+  if (!stdin) return
+  stdin.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') return
+    console.warn('[AIService] failed to write prompt to CLI stdin', err)
+  })
+  stdin.end(prompt)
 }
 
 async function runAnthropicApi(prompt: string): Promise<AIAnalysisOutput> {
@@ -287,6 +393,7 @@ function runProvider(
 ): Promise<AIAnalysisOutput> {
   if (provider === 'claude') return runClaudeCli(prompt, repoPaths)
   if (provider === 'gemini') return runGeminiCli(prompt)
+  if (provider === 'cursor') return runCursorCli(prompt, repoPaths)
   if (provider === 'anthropic') return runAnthropicApi(prompt)
   return Promise.reject(new Error(`Unknown AI provider: ${provider}`))
 }

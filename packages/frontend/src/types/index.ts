@@ -39,8 +39,8 @@ export interface GitHubCredential {
   createdAt: string
 }
 
-export type AIProviderId = 'claude' | 'gemini' | 'anthropic'
-export type CLIModelProviderId = Extract<AIProviderId, 'claude' | 'gemini'>
+export type AIProviderId = 'claude' | 'gemini' | 'cursor' | 'anthropic'
+export type CLIModelProviderId = Extract<AIProviderId, 'claude' | 'gemini' | 'cursor'>
 
 export interface AIProviderInfo {
   id: AIProviderId

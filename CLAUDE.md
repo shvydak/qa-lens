@@ -85,8 +85,8 @@ npm workspaces monorepo with two packages:
 **Services:**
 
 - `GitService.ts` — all git operations via `execFile` (never shell string interpolation). Uses `origin/<branch>` for remote HEAD, falls back to local HEAD.
-- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Claude/Gemini CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`. `parseAIJson` strips ` ```json ` fences AND extracts the first balanced `{…}` block as a fallback — Claude CLI sometimes prefaces the JSON with prose like "I have enough information…" despite the prompt instruction; do not remove this fallback. The prompt is fed to both CLIs via stdin (`promise.child.stdin?.end(prompt)`), not as a positional `-p <prompt>` argv — large diffs exceed macOS `ARG_MAX` (~256KB) and fail silently with "Command failed" otherwise. Closing stdin (with or without payload) also avoids the CLI's 3-second `no stdin data received` warning. Timeout is 300s. On non-zero exit, extract `e.code`/`e.signal`/`e.stderr`/`e.stdout` from the `execFile` error and rethrow with details — `Error.message` alone shows only the command line.
-- `SettingsService.ts` — detects AI provider availability and exposes selectable CLI model options. For Claude, prefer Claude Code aliases (`sonnet`, `sonnet[1m]`, `opus`, `opus[1m]`, `haiku`) instead of pinned model IDs so the installed Claude Code CLI resolves to the current supported models.
+- `AIService.ts` — provider waterfall: Claude CLI → Gemini CLI → Cursor CLI → Anthropic API. Order controlled by `AI_PROVIDERS` env var or Settings default provider. Claude CLI is called with `--add-dir` for each repo path so the model can read files autonomously. Cursor CLI detects both `agent` (official installer) and `cursor-agent` (Homebrew cask), runs with `--mode ask`, `--output-format json`, and `--workspace config.managedReposPath`, then parses `.result`. Claude/Gemini/Cursor CLI model selections are stored in `app_settings` (`ai_model_claude`, `ai_model_gemini`, `ai_model_cursor`) and passed via `--model`. Response is always parsed as JSON matching `AIAnalysisOutput`. `parseAIJson` strips ````json` fences AND extracts the first balanced `{…}` block as a fallback — Claude CLI sometimes prefaces the JSON with prose like "I have enough information…" despite the prompt instruction; do not remove this fallback. Feed prompts to CLIs via `writePromptToStdin()` rather than `child.stdin.end(prompt)` directly — large diffs exceed macOS `ARG_MAX` (~256KB), and `writePromptToStdin()` ignores `EPIPE` when a CLI exits before reading stdin. Timeout is 300s. On non-zero exit, extract `e.code`/`e.signal`/`e.stderr`/`e.stdout` from the `execFile` error and rethrow with details — `Error.message` alone shows only the command line.
+- `SettingsService.ts` — detects AI provider availability and exposes selectable CLI model options. For Claude, prefer Claude Code aliases (`sonnet`, `sonnet[1m]`, `opus`, `opus[1m]`, `haiku`) instead of pinned model IDs so the installed Claude Code CLI resolves to the current supported models. For Cursor, available model IDs depend on the authenticated Cursor account/team policy; support `AI_MODELS_CURSOR` and saved custom values.
 - `AnalysisService.ts` — orchestrates the full analysis cycle: gather diffs from all repos in parallel → call AI → persist `TestSet` + `Test` rows in a single transaction. Tracks in-flight jobs in a `Map<projectId, job>` (in-memory, resets on restart). `markTestSetPassed()` updates `last_analyzed_commit_hash` for every repo in the test set's `commit_ranges` in a single transaction.
 - `PollingService.ts` — runs `git fetch` for every repo every 60s using `Promise.allSettled` (one failure doesn't block others).
 - `prompts/analysis.ts` — the AI prompt template. Edit this to tune analysis quality without touching service logic.
@@ -135,6 +135,8 @@ npm workspaces monorepo with two packages:
 
 **Managed repo storage:** Keep `packages/managed-repos/` ignored by git and ESLint; cloned customer repos are input data, not QA Lens source.
 
+**Cursor provider repo scope:** Cursor CLI analysis only supports managed GitHub clones under `MANAGED_REPOS_PATH`; keep the managed-path guard so arbitrary local repos are not analyzed through Cursor.
+
 **Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 
 **Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; normalize API timestamps to ISO `Z` in mappers before frontend relative-time parsing.
@@ -145,9 +147,11 @@ npm workspaces monorepo with two packages:
 
 **TestSet DTO / `checklistCounts`:** `GET /api/projects/:id/test-sets` adds per-row aggregates via SQL subqueries on `tests`; `GET /api/test-sets/:id` derives counts from loaded tests; `PATCH` (and other `SELECT *` rows) uses `fetchChecklistCounts` in `routes/testSets.ts` when list-query aliases are absent.
 
-**`Array#map` + DTO mappers:** If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
+`**Array#map` + DTO mappers:\*\* If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
 
 **AI debug dump:** Run backend with `AI_DEBUG_DUMP=1` to write each AI call's `prompt.txt`, `response.json`, and `meta.json` to `packages/backend/.ai-debug/` (gitignored). Use this to inspect what the model actually received and returned without modifying production code paths. `meta.json` records `requestedModel` (Settings selection) and `usedModels` (from `modelUsage` in CLI wrapper) — proves which model executed.
+
+**AIService provider tests:** Mock `child_process.execFile` with `vi.hoisted` plus `Symbol.for('nodejs.util.promisify.custom')`; cover Cursor JSON `.result` parsing, managed-path guard, and stdin `EPIPE`.
 
 ### Frontend
 
@@ -169,7 +173,7 @@ npm workspaces monorepo with two packages:
 
 **Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
 
-**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), **`checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. **`TestSetCard`** renders the segmented checklist bar; **`ProjectDetailPage`** passes **`executionUpdating`** when `analysisStatus.running && activeTestSet?.id === ts.id`.
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), `**checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. `**TestSetCard**`renders the segmented checklist bar;`**ProjectDetailPage**`passes`**executionUpdating\*\*`when`analysisStatus.running && activeTestSet?.id === ts.id`.
 
 **Active project context:** `src/contexts/ActiveProjectContext.tsx` tracks `activeProjectId` and `testSetVersion`. Pages call `setActiveProjectId(id)` on mount; `invalidateTestSets()` triggers a sidebar re-fetch of test sets — call it after any mutation that changes `checklistCounts` (e.g. test status updates).
 
@@ -183,18 +187,19 @@ npm workspaces monorepo with two packages:
 
 Key variables:
 
-| Variable             | Default                   | Purpose                                                |
-| -------------------- | ------------------------- | ------------------------------------------------------ |
-| `PORT`               | `3001`                    | Backend port                                           |
-| `DB_PATH`            | `packages/qa-lens.db`     | SQLite file location                                   |
-| `MANAGED_REPOS_PATH` | `packages/managed-repos`  | Internal clone storage for GitHub-managed repositories |
-| `CLIENT_ORIGIN`      | `http://localhost:5173`   | Allowed CORS origin for the backend                    |
-| `VITE_API_URL`       | `http://localhost:3001`   | Frontend API base URL                                  |
-| `AI_PROVIDERS`       | `claude,gemini,anthropic` | Provider order for waterfall                           |
-| `AI_MODELS_CLAUDE`   | —                         | Extra Claude CLI model choices shown in Settings       |
-| `AI_MODELS_GEMINI`   | —                         | Extra Gemini CLI model choices shown in Settings       |
-| `ANTHROPIC_API_KEY`  | —                         | Required only if `anthropic` provider is used          |
-| `AI_DEBUG_DUMP`      | —                         | When set, dump prompt/response/meta to `.ai-debug/`    |
+| Variable             | Default                          | Purpose                                                |
+| -------------------- | -------------------------------- | ------------------------------------------------------ |
+| `PORT`               | `3001`                           | Backend port                                           |
+| `DB_PATH`            | `packages/qa-lens.db`            | SQLite file location                                   |
+| `MANAGED_REPOS_PATH` | `packages/managed-repos`         | Internal clone storage for GitHub-managed repositories |
+| `CLIENT_ORIGIN`      | `http://localhost:5173`          | Allowed CORS origin for the backend                    |
+| `VITE_API_URL`       | `http://localhost:3001`          | Frontend API base URL                                  |
+| `AI_PROVIDERS`       | `claude,gemini,cursor,anthropic` | Provider order for waterfall                           |
+| `AI_MODELS_CLAUDE`   | —                                | Extra Claude CLI model choices shown in Settings       |
+| `AI_MODELS_GEMINI`   | —                                | Extra Gemini CLI model choices shown in Settings       |
+| `AI_MODELS_CURSOR`   | —                                | Extra Cursor CLI model choices shown in Settings       |
+| `ANTHROPIC_API_KEY`  | —                                | Required only if `anthropic` provider is used          |
+| `AI_DEBUG_DUMP`      | —                                | When set, dump prompt/response/meta to `.ai-debug/`    |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 

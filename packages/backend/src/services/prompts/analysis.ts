@@ -51,7 +51,7 @@ Analyze all changes across ALL repositories simultaneously. Focus on:
 3. Cross-repository impacts (e.g., backend change → check the related frontend flow)
 4. Integration points between services
 
-You have access to the repository files via the --add-dir tool. You MUST use it to:
+You have access to the repository files at the paths listed in each repository section. You MUST use file-reading and search tools to:
 - Read surrounding code to understand the context of changes.
 - Verify whether a changed function, endpoint, route path, or constant is actually referenced in the in-scope client repos before creating tests for it. Grep by route path, function name, and any constant that maps to the path.
 - Look at related test files to understand expected behavior.

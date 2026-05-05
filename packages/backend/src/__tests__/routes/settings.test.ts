@@ -36,7 +36,7 @@ describe('GET /api/settings', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.data.defaultAiProvider).toBeNull()
-    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null})
+    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null, cursor: null})
     expect(res.body.data.aiModelOptions.claude).toEqual(
       expect.arrayContaining([
         expect.objectContaining({id: 'sonnet'}),
@@ -49,12 +49,16 @@ describe('GET /api/settings', () => {
     expect(res.body.data.aiModelOptions.gemini).toEqual(
       expect.arrayContaining([expect.objectContaining({id: 'gemini-2.5-pro'})])
     )
+    expect(res.body.data.aiModelOptions.cursor).toEqual(
+      expect.arrayContaining([expect.objectContaining({id: 'gpt-5.3-codex'})])
+    )
     const providers = res.body.data.availableProviders
-    expect(providers).toHaveLength(3)
+    expect(providers).toHaveLength(4)
     expect(providers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({id: 'claude', available: true}),
         expect.objectContaining({id: 'gemini', available: false, reason: expect.any(String)}),
+        expect.objectContaining({id: 'cursor', available: false, reason: expect.any(String)}),
         expect.objectContaining({id: 'anthropic', available: false, reason: expect.any(String)}),
       ])
     )
@@ -78,6 +82,9 @@ describe('GET /api/settings', () => {
     testDb
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
       .run('ai_model_gemini', 'gemini-2.5-pro')
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_cursor', 'gpt-5.3-codex')
 
     const res = await request(app).get('/api/settings')
 
@@ -85,6 +92,7 @@ describe('GET /api/settings', () => {
     expect(res.body.data.aiProviderModels).toEqual({
       claude: 'sonnet',
       gemini: 'gemini-2.5-pro',
+      cursor: 'gpt-5.3-codex',
     })
   })
 
@@ -120,12 +128,19 @@ describe('PATCH /api/settings', () => {
   it('saves CLI provider models', async () => {
     const res = await request(app)
       .patch('/api/settings')
-      .send({aiProviderModels: {claude: ' sonnet ', gemini: 'gemini-2.5-pro'}})
+      .send({
+        aiProviderModels: {
+          claude: ' sonnet ',
+          gemini: 'gemini-2.5-pro',
+          cursor: 'gpt-5.3-codex',
+        },
+      })
 
     expect(res.status).toBe(200)
     expect(res.body.data.aiProviderModels).toEqual({
       claude: 'sonnet',
       gemini: 'gemini-2.5-pro',
+      cursor: 'gpt-5.3-codex',
     })
 
     const rows = testDb
@@ -133,6 +148,7 @@ describe('PATCH /api/settings', () => {
       .all() as Array<{key: string; value: string}>
     expect(rows).toEqual([
       {key: 'ai_model_claude', value: 'sonnet'},
+      {key: 'ai_model_cursor', value: 'gpt-5.3-codex'},
       {key: 'ai_model_gemini', value: 'gemini-2.5-pro'},
     ])
   })
@@ -144,13 +160,16 @@ describe('PATCH /api/settings', () => {
     testDb
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
       .run('ai_model_gemini', 'gemini-2.5-pro')
+    testDb
+      .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)')
+      .run('ai_model_cursor', 'gpt-5.3-codex')
 
     const res = await request(app)
       .patch('/api/settings')
-      .send({aiProviderModels: {claude: null, gemini: '  '}})
+      .send({aiProviderModels: {claude: null, gemini: '  ', cursor: ''}})
 
     expect(res.status).toBe(200)
-    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null})
+    expect(res.body.data.aiProviderModels).toEqual({claude: null, gemini: null, cursor: null})
   })
 
   it('rejects model selection for unsupported providers', async () => {

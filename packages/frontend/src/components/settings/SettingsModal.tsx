@@ -31,6 +31,12 @@ const CLI_MODEL_FIELDS: Array<{
     placeholder: 'Default from Gemini CLI',
     hint: 'Example: gemini-2.5-pro',
   },
+  {
+    provider: 'cursor',
+    label: 'Cursor CLI model',
+    placeholder: 'Default from Cursor CLI',
+    hint: 'Example: gpt-5.3-codex. Available models depend on the Cursor account and team policy.',
+  },
 ]
 
 const TABS: Array<{id: Tab; label: string; description: string; icon: JSX.Element}> = [
@@ -176,6 +182,7 @@ function AIProviderPanel() {
   const [modelDrafts, setModelDrafts] = useState<Record<CLIModelProviderId, string>>({
     claude: '',
     gemini: '',
+    cursor: '',
   })
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -189,6 +196,7 @@ function AIProviderPanel() {
         setModelDrafts({
           claude: data.aiProviderModels.claude ?? '',
           gemini: data.aiProviderModels.gemini ?? '',
+          cursor: data.aiProviderModels.cursor ?? '',
         })
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings'))
@@ -222,6 +230,7 @@ function AIProviderPanel() {
       setModelDrafts({
         claude: updated.aiProviderModels.claude ?? '',
         gemini: updated.aiProviderModels.gemini ?? '',
+        cursor: updated.aiProviderModels.cursor ?? '',
       })
       setSavedAt(Date.now())
     } catch (err) {
@@ -296,7 +305,7 @@ function AIProviderPanel() {
             <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-lg border border-gray-700/70 bg-gray-900 shadow-2xl">
               <ProviderOption
                 label="Auto (waterfall)"
-                description="Try claude → gemini → anthropic in order"
+                description="Try claude -> gemini -> cursor -> anthropic in order"
                 selected={settings.defaultAiProvider === null}
                 onClick={() => saveProvider(null)}
               />

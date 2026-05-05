@@ -2,8 +2,8 @@ import {config, type AIProvider, type CLIModelProvider} from '../config.js'
 import {getDb} from '../db/index.js'
 import {isCommandAvailable} from './AIService.js'
 
-export const ALL_AI_PROVIDERS: AIProvider[] = ['claude', 'gemini', 'anthropic']
-export const MODEL_CONFIGURABLE_PROVIDERS: CLIModelProvider[] = ['claude', 'gemini']
+export const ALL_AI_PROVIDERS: AIProvider[] = ['claude', 'gemini', 'cursor', 'anthropic']
+export const MODEL_CONFIGURABLE_PROVIDERS: CLIModelProvider[] = ['claude', 'gemini', 'cursor']
 
 export interface AIProviderInfo {
   id: AIProvider
@@ -21,6 +21,7 @@ export interface AIModelOption {
 const PROVIDER_LABELS: Record<AIProvider, string> = {
   claude: 'Claude CLI',
   gemini: 'Gemini CLI',
+  cursor: 'Cursor CLI',
   anthropic: 'Anthropic API',
 }
 
@@ -43,6 +44,13 @@ const KNOWN_CLI_MODEL_OPTIONS: Record<CLIModelProvider, AIModelOption[]> = {
     {id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', source: 'known'},
     {id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', source: 'known'},
   ],
+  cursor: [
+    {id: 'auto', label: 'Auto', source: 'known'},
+    {id: 'composer-2', label: 'Composer 2', source: 'known'},
+    {id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', source: 'known'},
+    {id: 'gpt-5.2', label: 'GPT-5.2', source: 'known'},
+    {id: 'claude-4.6-sonnet', label: 'Claude 4.6 Sonnet', source: 'known'},
+  ],
 }
 
 export async function detectProviderAvailability(provider: AIProvider): Promise<AIProviderInfo> {
@@ -63,6 +71,16 @@ export async function detectProviderAvailability(provider: AIProvider): Promise<
       label,
       available,
       reason: available ? undefined : 'gemini CLI not installed on host',
+    }
+  }
+  if (provider === 'cursor') {
+    const available =
+      (await isCommandAvailable('agent')) || (await isCommandAvailable('cursor-agent'))
+    return {
+      id: provider,
+      label,
+      available,
+      reason: available ? undefined : 'Cursor CLI agent or cursor-agent not installed on host',
     }
   }
   const available = Boolean(config.anthropicApiKey)
@@ -115,6 +133,7 @@ export function getAIProviderModels(): Record<CLIModelProvider, string | null> {
   return {
     claude: getAIProviderModel('claude'),
     gemini: getAIProviderModel('gemini'),
+    cursor: getAIProviderModel('cursor'),
   }
 }
 
@@ -122,6 +141,7 @@ export function getAIModelOptions(): Record<CLIModelProvider, AIModelOption[]> {
   return {
     claude: getAIModelOptionsForProvider('claude'),
     gemini: getAIModelOptionsForProvider('gemini'),
+    cursor: getAIModelOptionsForProvider('cursor'),
   }
 }
 
@@ -135,7 +155,12 @@ function getAIModelOptionsForProvider(provider: CLIModelProvider): AIModelOption
 }
 
 function getConfiguredModelOptions(provider: CLIModelProvider): AIModelOption[] {
-  const envName = provider === 'claude' ? 'AI_MODELS_CLAUDE' : 'AI_MODELS_GEMINI'
+  const envName =
+    provider === 'claude'
+      ? 'AI_MODELS_CLAUDE'
+      : provider === 'gemini'
+        ? 'AI_MODELS_GEMINI'
+        : 'AI_MODELS_CURSOR'
   const value = process.env[envName]
   if (!value) return []
   return value
