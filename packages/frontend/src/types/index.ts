@@ -91,11 +91,12 @@ export interface TestSet {
   analysisContextId: string | null
   branchSignature: string | null
   name: string
-  status: 'active' | 'passed' | 'failed'
+  status: 'active' | 'passed' | 'failed' | 'not_required'
   isEmptyReview: boolean
   commitRanges: Record<string, {from: string | null; to: string}>
   commitTargets?: TestSetCommitTarget[]
   aiSummary: string | null
+  resolutionNote: string | null
   regressions: string[]
   crossImpacts: string[]
   createdAt: string

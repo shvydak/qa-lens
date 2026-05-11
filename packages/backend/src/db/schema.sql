@@ -54,12 +54,13 @@ CREATE TABLE IF NOT EXISTS test_sets (
   project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   analysis_context_id TEXT REFERENCES analysis_contexts(id) ON DELETE SET NULL,
   name          TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','passed','failed')),
+  status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','passed','failed','not_required')),
   commit_ranges TEXT NOT NULL DEFAULT '{}',
   ai_summary    TEXT,
   regressions   TEXT,
   cross_impacts TEXT,
   is_empty_review INTEGER NOT NULL DEFAULT 0,
+  resolution_note TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at  TEXT
 );

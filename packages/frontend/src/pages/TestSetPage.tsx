@@ -10,8 +10,16 @@ const STATUS_STYLES = {
   active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
   passed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   failed: 'bg-red-500/15 text-red-400 border-red-500/20',
+  not_required: 'bg-gray-700/30 text-gray-300 border-gray-700/40',
 }
-const STATUS_LABELS = {active: 'In progress', passed: 'Passed', failed: 'Failed'}
+const STATUS_LABELS = {
+  active: 'In progress',
+  passed: 'Passed',
+  failed: 'Failed',
+  not_required: 'No retest needed',
+}
+
+type CloseReviewStatus = 'passed' | 'failed' | 'not_required'
 
 export default function TestSetPage() {
   const {id} = useParams<{id: string}>()
@@ -24,6 +32,9 @@ export default function TestSetPage() {
   const [marking, setMarking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [viewMode, setViewMode] = useState<'priority' | 'update'>('priority')
+  const [closeReviewOpen, setCloseReviewOpen] = useState(false)
+  const [closeStatus, setCloseStatus] = useState<CloseReviewStatus>('passed')
+  const [resolutionNote, setResolutionNote] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -55,14 +66,18 @@ export default function TestSetPage() {
     setTests((ts) => [...ts, test])
   }
 
-  const markPassed = async () => {
+  const closeReview = async () => {
     if (!testSet) return
     setMarking(true)
     try {
       const updated = await apiFetch<TestSet>('PATCH', `/api/test-sets/${testSet.id}`, {
-        status: 'passed',
+        status: closeStatus,
+        resolutionNote,
       })
       setTestSet(updated)
+      setCloseReviewOpen(false)
+      setResolutionNote('')
+      invalidateTestSets()
     } finally {
       setMarking(false)
     }
@@ -72,7 +87,7 @@ export default function TestSetPage() {
     if (!testSet) return
 
     const message = rewind
-      ? 'Delete this test set and rewind the analysis point to the latest remaining passed test set?'
+      ? 'Delete this test set and rewind the analysis point to the latest remaining closed review?'
       : 'Delete this test set? This will not change the analysis point.'
     if (!window.confirm(message)) return
 
@@ -103,9 +118,7 @@ export default function TestSetPage() {
   const failedTests = tests.filter((t) => t.status === 'fail').length
   const progress = totalTests > 0 ? (doneTests / totalTests) * 100 : 0
   const isEmptyReview = testSet.isEmptyReview && totalTests === 0
-  const canMarkPassed =
-    testSet.status === 'active' &&
-    (isEmptyReview || (failedTests === 0 && doneTests === totalTests && totalTests > 0))
+  const isClosedReview = testSet.status !== 'active'
 
   const priorityOrder = {high: 0, medium: 1, low: 2}
   const sortByPriority = (items: Test[]) =>
@@ -160,14 +173,17 @@ export default function TestSetPage() {
             {isEmptyReview && (
               <p className="mt-1 font-mono text-xs text-gray-600">{testSet.name}</p>
             )}
+            {testSet.resolutionNote && (
+              <p className="mt-2 text-sm text-gray-500">Resolution: {testSet.resolutionNote}</p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               type="button"
-              onClick={() => deleteTestSet(testSet.status === 'passed')}
+              onClick={() => deleteTestSet(isClosedReview)}
               disabled={deleting}
               className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-xs font-medium rounded-lg transition-colors border border-red-500/20">
-              {testSet.status === 'passed' ? 'Delete & rewind' : 'Delete'}
+              {isClosedReview ? 'Delete & rewind' : 'Delete'}
             </button>
           </div>
         </div>
@@ -197,8 +213,8 @@ export default function TestSetPage() {
             </p>
             <ul className="mt-2 space-y-1 pl-4 text-sm text-gray-400">
               <li className="list-disc">
-                <span className="text-gray-300 font-medium">Mark as reviewed</span> to advance the
-                analysis cursor without running any tests.
+                <span className="text-gray-300 font-medium">Close Review</span> to advance the
+                analysis cursor with no retest required.
               </li>
               <li className="list-disc">Add a manual test below if you disagree with the AI.</li>
               <li className="list-disc">
@@ -422,22 +438,23 @@ export default function TestSetPage() {
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <div className="text-sm text-gray-500">
               {isEmptyReview ? (
-                <span>Advances the analysis cursor without testing.</span>
+                <span>Close this review to advance the analysis cursor without testing.</span>
               ) : (
-                !canMarkPassed &&
-                (failedTests > 0 ? (
-                  <span className="text-red-400">
-                    {failedTests} failed test{failedTests > 1 ? 's' : ''}
-                  </span>
-                ) : (
-                  <span>Complete all tests to mark as passed</span>
-                ))
+                <span>
+                  Closing records this commit range as reviewed and starts the next analysis from
+                  here.
+                </span>
               )}
             </div>
             <button
-              onClick={markPassed}
-              disabled={!canMarkPassed || marking}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg transition-colors">
+              onClick={() => {
+                setCloseStatus(
+                  isEmptyReview ? 'not_required' : failedTests > 0 ? 'failed' : 'passed'
+                )
+                setCloseReviewOpen(true)
+              }}
+              disabled={marking}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg transition-colors">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path
                   d="M2 7l3.5 3.5L12 3.5"
@@ -447,11 +464,176 @@ export default function TestSetPage() {
                   strokeLinejoin="round"
                 />
               </svg>
-              {marking ? 'Saving...' : isEmptyReview ? 'Mark as reviewed' : 'Mark as Passed'}
+              {marking ? 'Saving...' : 'Close Review'}
             </button>
           </div>
         </div>
       )}
+      {closeReviewOpen && (
+        <CloseReviewModal
+          status={closeStatus}
+          note={resolutionNote}
+          counts={{
+            total: totalTests,
+            failed: failedTests,
+            pending: tests.filter((t) => t.status === 'not_tested').length,
+          }}
+          saving={marking}
+          onStatusChange={setCloseStatus}
+          onNoteChange={setResolutionNote}
+          onCancel={() => setCloseReviewOpen(false)}
+          onConfirm={closeReview}
+        />
+      )}
     </div>
+  )
+}
+
+function CloseReviewModal({
+  status,
+  note,
+  counts,
+  saving,
+  onStatusChange,
+  onNoteChange,
+  onCancel,
+  onConfirm,
+}: {
+  status: CloseReviewStatus
+  note: string
+  counts: {total: number; failed: number; pending: number}
+  saving: boolean
+  onStatusChange: (status: CloseReviewStatus) => void
+  onNoteChange: (note: string) => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const noteRequired = status === 'not_required'
+  const canConfirm = !saving && (!noteRequired || note.trim().length > 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 p-5 shadow-2xl">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-100">Close review</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            This closes the current test set and advances the analysis cursor to the analyzed
+            commits.
+          </p>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2 text-xs text-gray-500">
+          {counts.total === 0 ? (
+            <span>No test cases were created for this review.</span>
+          ) : (
+            <span>
+              {counts.total} test{counts.total === 1 ? '' : 's'} total
+              {counts.failed > 0 && <span className="text-red-400"> · {counts.failed} failed</span>}
+              {counts.pending > 0 && <span> · {counts.pending} pending</span>}
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <CloseReviewOption
+            value="passed"
+            selected={status === 'passed'}
+            title="Passed"
+            description="The review was completed and no blocking issues remain."
+            onSelect={onStatusChange}
+          />
+          <CloseReviewOption
+            value="failed"
+            selected={status === 'failed'}
+            title="Failed"
+            description="The review found issues. Future analysis will focus on new fix commits."
+            onSelect={onStatusChange}
+          />
+          <CloseReviewOption
+            value="not_required"
+            selected={status === 'not_required'}
+            title="No retest needed"
+            description="Use when this commit range was already verified elsewhere or is not applicable."
+            onSelect={onStatusChange}
+          />
+        </div>
+
+        {status === 'passed' && (counts.failed > 0 || counts.pending > 0) && (
+          <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+            This test set still has failed or pending cases. You can still close it as Passed, but
+            the checklist will remain visible in history.
+          </p>
+        )}
+
+        <label className="mt-4 block">
+          <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            Resolution note {noteRequired ? '(required)' : '(optional)'}
+          </span>
+          <textarea
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value)}
+            placeholder={
+              status === 'not_required'
+                ? 'Example: verified in stabilize before merge'
+                : 'Add any context for future audit'
+            }
+            rows={3}
+            className="mt-2 w-full resize-none rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-indigo-500/50"
+          />
+        </label>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg border border-gray-800 px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800/60 disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!canConfirm}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-600">
+            {saving ? 'Closing...' : 'Close review'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CloseReviewOption({
+  value,
+  selected,
+  title,
+  description,
+  onSelect,
+}: {
+  value: CloseReviewStatus
+  selected: boolean
+  title: string
+  description: string
+  onSelect: (status: CloseReviewStatus) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(value)}
+      className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
+        selected
+          ? 'border-indigo-500/50 bg-indigo-500/10'
+          : 'border-gray-800 bg-gray-950/30 hover:border-gray-700'
+      }`}>
+      <div className="flex items-start gap-3">
+        <span
+          className={`mt-1 h-2.5 w-2.5 rounded-full ${selected ? 'bg-indigo-400' : 'bg-gray-700'}`}
+        />
+        <span>
+          <span className="block text-sm font-medium text-gray-200">{title}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-gray-500">{description}</span>
+        </span>
+      </div>
+    </button>
   )
 }

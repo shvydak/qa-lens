@@ -28,6 +28,8 @@ function runMigrations(db: Database.Database): void {
   ensureColumn(db, 'repositories', 'source_type', "TEXT NOT NULL DEFAULT 'local_path'")
   ensureColumn(db, 'test_sets', 'analysis_context_id', 'TEXT')
   ensureColumn(db, 'test_sets', 'is_empty_review', 'INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(db, 'test_sets', 'resolution_note', 'TEXT')
+  allowNotRequiredTestSetStatus(db)
   ensureColumn(db, 'tests', 'title', 'TEXT')
   ensureColumn(db, 'tests', 'user_scenario', 'TEXT')
   ensureColumn(db, 'tests', 'preconditions', 'TEXT')
@@ -54,6 +56,71 @@ function ensureColumn(
   if (columns.some((column) => column.name === columnName)) return
 
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`)
+}
+
+function allowNotRequiredTestSetStatus(db: Database.Database): void {
+  const table = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'test_sets'")
+    .get() as {sql: string} | undefined
+
+  if (!table?.sql || table.sql.includes("'not_required'")) return
+
+  db.pragma('foreign_keys = OFF')
+  try {
+    db.exec(`
+      CREATE TABLE test_sets_new (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        analysis_context_id TEXT REFERENCES analysis_contexts(id) ON DELETE SET NULL,
+        name          TEXT NOT NULL,
+        status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','passed','failed','not_required')),
+        commit_ranges TEXT NOT NULL DEFAULT '{}',
+        ai_summary    TEXT,
+        regressions   TEXT,
+        cross_impacts TEXT,
+        is_empty_review INTEGER NOT NULL DEFAULT 0,
+        resolution_note TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        completed_at  TEXT
+      );
+      INSERT INTO test_sets_new (
+        id,
+        project_id,
+        analysis_context_id,
+        name,
+        status,
+        commit_ranges,
+        ai_summary,
+        regressions,
+        cross_impacts,
+        is_empty_review,
+        resolution_note,
+        created_at,
+        completed_at
+      )
+        SELECT
+          id,
+          project_id,
+          analysis_context_id,
+          name,
+          status,
+          commit_ranges,
+          ai_summary,
+          regressions,
+          cross_impacts,
+          is_empty_review,
+          resolution_note,
+          created_at,
+          completed_at
+        FROM test_sets;
+      DROP TABLE test_sets;
+      ALTER TABLE test_sets_new RENAME TO test_sets;
+      CREATE INDEX IF NOT EXISTS idx_test_sets_project ON test_sets(project_id);
+      CREATE INDEX IF NOT EXISTS idx_test_sets_context ON test_sets(analysis_context_id);
+    `)
+  } finally {
+    db.pragma('foreign_keys = ON')
+  }
 }
 
 function relaxGitHubCredentialsProjectId(db: Database.Database): void {

@@ -23,6 +23,7 @@ vi.mock('../../services/AIService.js', () => ({
 
 import {
   run,
+  closeTestSetReview,
   markTestSetPassed,
   deleteTestSet,
   getRunningJob,
@@ -119,6 +120,48 @@ describe('markTestSetPassed', () => {
   })
 })
 
+describe('closeTestSetReview', () => {
+  it('sets failed status and still advances the analysis cursor', () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {'repo-1': {from: null, to: 'failed-head'}},
+    })
+
+    closeTestSetReview(testSetId, 'failed', 'Bug filed for this range')
+
+    const ts = testDb
+      .prepare('SELECT status, resolution_note FROM test_sets WHERE id = ?')
+      .get(testSetId) as {status: string; resolution_note: string}
+    expect(ts).toEqual({status: 'failed', resolution_note: 'Bug filed for this range'})
+
+    const repo = testDb
+      .prepare('SELECT last_analyzed_commit_hash FROM repositories WHERE id = ?')
+      .get(repoId) as {last_analyzed_commit_hash: string}
+    expect(repo.last_analyzed_commit_hash).toBe('failed-head')
+  })
+
+  it('sets not_required status and advances the analysis cursor', () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {'repo-1': {from: null, to: 'verified-head'}},
+    })
+
+    closeTestSetReview(testSetId, 'not_required', 'Verified in stabilize')
+
+    const ts = testDb
+      .prepare('SELECT status, resolution_note FROM test_sets WHERE id = ?')
+      .get(testSetId) as {status: string; resolution_note: string}
+    expect(ts).toEqual({status: 'not_required', resolution_note: 'Verified in stabilize'})
+
+    const repo = testDb
+      .prepare('SELECT last_analyzed_commit_hash FROM repositories WHERE id = ?')
+      .get(repoId) as {last_analyzed_commit_hash: string}
+    expect(repo.last_analyzed_commit_hash).toBe('verified-head')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // deleteTestSet
 // ---------------------------------------------------------------------------
@@ -155,14 +198,14 @@ describe('deleteTestSet', () => {
     expect(repo.last_analyzed_commit_hash).toBe('current-hash')
   })
 
-  it('with rewind recomputes cursor from remaining passed test sets', () => {
+  it('with rewind recomputes cursor from remaining closed test sets', () => {
     const projectId = seedProject(testDb)
     const repoId = seedRepo(testDb, projectId, {id: 'repo-1'})
 
-    // Older passed test set: hash1
+    // Older closed test set: hash1
     seedTestSet(testDb, projectId, {
       id: 'ts-old',
-      status: 'passed',
+      status: 'failed',
       commitRanges: {'repo-1': {from: null, to: 'hash1'}},
     })
 

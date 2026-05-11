@@ -37,19 +37,46 @@ describe('PATCH /api/test-sets/:id', () => {
     expect(repo.last_analyzed_commit_hash).toBe('target-hash')
   })
 
-  it('status=failed does NOT advance repo cursor', async () => {
+  it('status=failed closes review and advances repo cursor', async () => {
     const projectId = seedProject(testDb)
     const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})
     const testSetId = seedTestSet(testDb, projectId, {
       commitRanges: {'repo-1': {from: null, to: 'target-hash'}},
     })
 
-    await request(app).patch(`/api/test-sets/${testSetId}`).send({status: 'failed'})
+    const res = await request(app)
+      .patch(`/api/test-sets/${testSetId}`)
+      .send({status: 'failed', resolutionNote: 'Bug remains'})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe('failed')
+    expect(res.body.data.resolutionNote).toBe('Bug remains')
 
     const repo = testDb
       .prepare('SELECT last_analyzed_commit_hash FROM repositories WHERE id = ?')
-      .get(repoId) as {last_analyzed_commit_hash: string | null}
-    expect(repo.last_analyzed_commit_hash).toBeNull()
+      .get(repoId) as {last_analyzed_commit_hash: string}
+    expect(repo.last_analyzed_commit_hash).toBe('target-hash')
+  })
+
+  it('status=not_required closes review and advances repo cursor', async () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {'repo-1': {from: null, to: 'target-hash'}},
+    })
+
+    const res = await request(app)
+      .patch(`/api/test-sets/${testSetId}`)
+      .send({status: 'not_required', resolutionNote: 'Verified in stabilize'})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe('not_required')
+    expect(res.body.data.resolutionNote).toBe('Verified in stabilize')
+
+    const repo = testDb
+      .prepare('SELECT last_analyzed_commit_hash FROM repositories WHERE id = ?')
+      .get(repoId) as {last_analyzed_commit_hash: string}
+    expect(repo.last_analyzed_commit_hash).toBe('target-hash')
   })
 
   it('returns 404 for non-existent test set', async () => {
@@ -113,13 +140,13 @@ describe('DELETE /api/test-sets/:id', () => {
     expect(ts).toBeUndefined()
   })
 
-  it('?rewind=true recomputes repo cursor from remaining passed test sets', async () => {
+  it('?rewind=true recomputes repo cursor from remaining closed test sets', async () => {
     const projectId = seedProject(testDb)
     const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: 'hash2'})
 
     seedTestSet(testDb, projectId, {
       id: 'ts-old',
-      status: 'passed',
+      status: 'not_required',
       commitRanges: {'repo-1': {from: null, to: 'hash1'}},
     })
     const newerTsId = seedTestSet(testDb, projectId, {

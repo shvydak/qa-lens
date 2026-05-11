@@ -6,12 +6,14 @@ const STATUS_STYLES = {
   active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
   passed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   failed: 'bg-red-500/15 text-red-400 border-red-500/20',
+  not_required: 'bg-gray-700/30 text-gray-300 border-gray-700/40',
 } as const
 
 const STATUS_LABELS = {
   active: 'In progress',
   passed: 'Passed',
   failed: 'Failed',
+  not_required: 'No retest',
 } as const
 
 interface TestSetCardProps {
@@ -78,6 +80,11 @@ export default function TestSetCard({
               aria-label="Checklist is being updated by analysis">
               <div className="h-full w-full animate-pulse rounded-full bg-indigo-500/35" />
             </div>
+          ) : testSet.status === 'not_required' ? (
+            <p className="mt-2 text-[11px] text-gray-500">
+              Cursor advanced without retesting
+              {testSet.resolutionNote ? `: ${testSet.resolutionNote}` : ''}
+            </p>
           ) : isEmptyReview ? (
             <p className="mt-2 text-[11px] text-gray-500">
               AI found no in-scope changes for this update
