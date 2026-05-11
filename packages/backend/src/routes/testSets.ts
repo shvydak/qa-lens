@@ -156,8 +156,10 @@ type ChecklistCounts = {total: number; pass: number; fail: number; skip: number;
 
 function isClosingStatus(
   status: string | undefined
-): status is 'passed' | 'failed' | 'not_required' {
-  return status === 'passed' || status === 'failed' || status === 'not_required'
+): status is 'passed' | 'failed' | 'reviewed' | 'not_required' {
+  return (
+    status === 'passed' || status === 'failed' || status === 'reviewed' || status === 'not_required'
+  )
 }
 
 function checklistCountsFromRow(r: Record<string, unknown>): ChecklistCounts {

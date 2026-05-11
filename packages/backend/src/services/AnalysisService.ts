@@ -391,7 +391,7 @@ function mergeStringArrays(a: string[], b: string[]): string[] {
   return [...new Set([...a, ...b].map((item) => item.trim()).filter(Boolean))]
 }
 
-export type TestSetResolutionStatus = 'passed' | 'failed' | 'not_required'
+export type TestSetResolutionStatus = 'passed' | 'failed' | 'reviewed' | 'not_required'
 
 export function closeTestSetReview(
   testSetId: string,
@@ -434,6 +434,17 @@ export function closeTestSetReview(
       } else {
         updateRepoForActiveBranch.run(range.to, targetId)
       }
+    }
+
+    if (status === 'reviewed' || status === 'not_required') {
+      db.prepare(
+        `
+        UPDATE tests
+        SET status = 'skip'
+        WHERE test_set_id = ?
+          AND status NOT IN ('pass', 'fail')
+      `
+      ).run(testSetId)
     }
 
     db.prepare(
@@ -491,7 +502,7 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
       `
       SELECT commit_ranges
       FROM test_sets
-      WHERE project_id = ? AND status IN ('passed', 'failed', 'not_required')
+      WHERE project_id = ? AND status IN ('passed', 'failed', 'reviewed', 'not_required')
       ORDER BY created_at DESC, rowid DESC
     `
     )

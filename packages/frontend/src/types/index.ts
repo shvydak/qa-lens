@@ -91,7 +91,7 @@ export interface TestSet {
   analysisContextId: string | null
   branchSignature: string | null
   name: string
-  status: 'active' | 'passed' | 'failed' | 'not_required'
+  status: 'active' | 'passed' | 'failed' | 'reviewed' | 'not_required'
   isEmptyReview: boolean
   commitRanges: Record<string, {from: string | null; to: string}>
   commitTargets?: TestSetCommitTarget[]

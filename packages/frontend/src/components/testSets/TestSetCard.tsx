@@ -6,6 +6,7 @@ const STATUS_STYLES = {
   active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
   passed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   failed: 'bg-red-500/15 text-red-400 border-red-500/20',
+  reviewed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   not_required: 'bg-gray-700/30 text-gray-300 border-gray-700/40',
 } as const
 
@@ -13,6 +14,7 @@ const STATUS_LABELS = {
   active: 'In progress',
   passed: 'Passed',
   failed: 'Failed',
+  reviewed: 'Reviewed',
   not_required: 'No retest',
 } as const
 

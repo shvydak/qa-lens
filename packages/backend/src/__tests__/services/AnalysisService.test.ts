@@ -121,6 +121,41 @@ describe('markTestSetPassed', () => {
 })
 
 describe('closeTestSetReview', () => {
+  it('sets reviewed status and advances the analysis cursor', () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {'repo-1': {from: null, to: 'reviewed-head'}},
+    })
+    const insertTest = testDb.prepare(
+      `INSERT INTO tests (id, test_set_id, description, priority, status) VALUES (?, ?, ?, ?, ?)`
+    )
+    insertTest.run('t-pass', testSetId, 'Passed case', 'high', 'pass')
+    insertTest.run('t-fail', testSetId, 'Failed case', 'high', 'fail')
+    insertTest.run('t-pending', testSetId, 'Pending case', 'medium', 'not_tested')
+
+    closeTestSetReview(testSetId, 'reviewed')
+
+    const ts = testDb.prepare('SELECT status FROM test_sets WHERE id = ?').get(testSetId) as {
+      status: string
+    }
+    expect(ts.status).toBe('reviewed')
+
+    const repo = testDb
+      .prepare('SELECT last_analyzed_commit_hash FROM repositories WHERE id = ?')
+      .get(repoId) as {last_analyzed_commit_hash: string}
+    expect(repo.last_analyzed_commit_hash).toBe('reviewed-head')
+
+    const statuses = testDb
+      .prepare('SELECT id, status FROM tests WHERE test_set_id = ? ORDER BY id')
+      .all(testSetId)
+    expect(statuses).toEqual([
+      {id: 't-fail', status: 'fail'},
+      {id: 't-pass', status: 'pass'},
+      {id: 't-pending', status: 'skip'},
+    ])
+  })
+
   it('sets failed status and still advances the analysis cursor', () => {
     const projectId = seedProject(testDb)
     const repoId = seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: null})

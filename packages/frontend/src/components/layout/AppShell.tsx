@@ -145,7 +145,9 @@ function SidebarTestSetItem({testSet, isActive}: {testSet: TestSet; isActive: bo
         ? 'bg-emerald-500'
         : testSet.status === 'failed'
           ? 'bg-red-400'
-          : 'bg-gray-500'
+          : testSet.status === 'reviewed'
+            ? 'bg-emerald-500'
+            : 'bg-gray-500'
 
   return (
     <Link

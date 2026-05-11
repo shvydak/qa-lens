@@ -63,7 +63,9 @@ function allowNotRequiredTestSetStatus(db: Database.Database): void {
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'test_sets'")
     .get() as {sql: string} | undefined
 
-  if (!table?.sql || table.sql.includes("'not_required'")) return
+  if (!table?.sql || (table.sql.includes("'not_required'") && table.sql.includes("'reviewed'"))) {
+    return
+  }
 
   db.pragma('foreign_keys = OFF')
   try {
@@ -73,7 +75,7 @@ function allowNotRequiredTestSetStatus(db: Database.Database): void {
         project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         analysis_context_id TEXT REFERENCES analysis_contexts(id) ON DELETE SET NULL,
         name          TEXT NOT NULL,
-        status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','passed','failed','not_required')),
+        status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','passed','failed','reviewed','not_required')),
         commit_ranges TEXT NOT NULL DEFAULT '{}',
         ai_summary    TEXT,
         regressions   TEXT,
