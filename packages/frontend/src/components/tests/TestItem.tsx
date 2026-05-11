@@ -15,6 +15,18 @@ const PRIORITY_STYLES = {
 
 const PRIORITY_LABELS = {high: 'high', medium: 'med', low: 'low'}
 
+const AREA_BADGE_STYLES = [
+  'border-sky-400/20 bg-sky-400/10 text-sky-300',
+  'border-cyan-400/20 bg-cyan-400/10 text-cyan-300',
+  'border-indigo-400/20 bg-indigo-400/10 text-indigo-300',
+  'border-violet-400/20 bg-violet-400/10 text-violet-300',
+  'border-fuchsia-400/20 bg-fuchsia-400/10 text-fuchsia-300',
+  'border-rose-400/20 bg-rose-400/10 text-rose-300',
+  'border-orange-400/20 bg-orange-400/10 text-orange-300',
+  'border-lime-400/20 bg-lime-400/10 text-lime-300',
+  'border-teal-400/20 bg-teal-400/10 text-teal-300',
+]
+
 const STATUS_ICON: Record<Test['status'], React.ReactNode> = {
   not_tested: (
     <span className="w-5 h-5 rounded-md border-2 border-gray-700 flex-shrink-0 transition-colors group-hover:border-gray-500" />
@@ -107,7 +119,8 @@ export default function TestItem({
             {PRIORITY_LABELS[test.priority]}
           </span>
           {test.area && (
-            <span className="text-xs text-gray-600 bg-gray-800/60 px-1.5 py-0.5 rounded">
+            <span
+              className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium ${getAreaBadgeStyle(test.area)}`}>
               {test.area}
             </span>
           )}
@@ -208,4 +221,16 @@ export default function TestItem({
       </button>
     </div>
   )
+}
+
+export function getAreaBadgeStyle(area: string): string {
+  return AREA_BADGE_STYLES[getStableIndex(area, AREA_BADGE_STYLES.length)]
+}
+
+function getStableIndex(value: string, size: number): number {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0
+  }
+  return hash % size
 }

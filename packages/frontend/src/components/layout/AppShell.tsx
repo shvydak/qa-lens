@@ -67,7 +67,9 @@ export default function AppShell() {
           <div className="space-y-0.5">
             {projects.map((project) => {
               const isActive = activeProjectId === project.id
-              const projectTestSets = isActive ? sidebarTestSets.slice(0, 6) : []
+              const projectTestSets = isActive
+                ? getLatestTestSetsByBranchCombination(sidebarTestSets)
+                : []
 
               return (
                 <div key={project.id}>
@@ -195,4 +197,38 @@ function getBranchLabel(testSet: TestSet): string {
   const targets = testSet.commitTargets ?? []
   if (targets.length > 0) return targets.map((t) => t.branchName).join(', ')
   return testSet.name
+}
+
+function getLatestTestSetsByBranchCombination(testSets: TestSet[]): TestSet[] {
+  const latestByCombination = new Map<string, TestSet>()
+
+  for (const testSet of testSets) {
+    const key = getBranchCombinationKey(testSet)
+    const existing = latestByCombination.get(key)
+
+    if (!existing || getLatestTime(testSet) > getLatestTime(existing)) {
+      latestByCombination.set(key, testSet)
+    }
+  }
+
+  return [...latestByCombination.values()]
+    .sort((a, b) => getLatestTime(b) - getLatestTime(a))
+    .slice(0, 6)
+}
+
+function getBranchCombinationKey(testSet: TestSet): string {
+  if (testSet.analysisContextId) return testSet.analysisContextId
+  if (testSet.branchSignature) return testSet.branchSignature
+
+  const targetSignature = (testSet.commitTargets ?? [])
+    .map((target) => `${target.repositoryId}:${target.branchName}`)
+    .sort()
+    .join('|')
+  if (targetSignature) return targetSignature
+
+  return Object.keys(testSet.commitRanges).sort().join('|') || testSet.id
+}
+
+function getLatestTime(testSet: TestSet): number {
+  return new Date(testSet.latestAnalysisRunAt ?? testSet.createdAt).getTime()
 }
