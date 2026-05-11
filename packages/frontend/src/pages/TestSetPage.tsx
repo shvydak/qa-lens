@@ -10,8 +10,16 @@ const STATUS_STYLES = {
   active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
   passed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   failed: 'bg-red-500/15 text-red-400 border-red-500/20',
+  reviewed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+  not_required: 'bg-gray-700/30 text-gray-300 border-gray-700/40',
 }
-const STATUS_LABELS = {active: 'In progress', passed: 'Passed', failed: 'Failed'}
+const STATUS_LABELS = {
+  active: 'In progress',
+  passed: 'Passed',
+  failed: 'Failed',
+  reviewed: 'Reviewed',
+  not_required: 'No retest needed',
+}
 
 export default function TestSetPage() {
   const {id} = useParams<{id: string}>()
@@ -55,14 +63,20 @@ export default function TestSetPage() {
     setTests((ts) => [...ts, test])
   }
 
-  const markPassed = async () => {
+  const closeReview = async (status: 'reviewed' | 'not_required') => {
     if (!testSet) return
     setMarking(true)
     try {
       const updated = await apiFetch<TestSet>('PATCH', `/api/test-sets/${testSet.id}`, {
-        status: 'passed',
+        status,
       })
       setTestSet(updated)
+      setTests((current) =>
+        current.map((test) =>
+          test.status === 'pass' || test.status === 'fail' ? test : {...test, status: 'skip'}
+        )
+      )
+      invalidateTestSets()
     } finally {
       setMarking(false)
     }
@@ -72,7 +86,7 @@ export default function TestSetPage() {
     if (!testSet) return
 
     const message = rewind
-      ? 'Delete this test set and rewind the analysis point to the latest remaining passed test set?'
+      ? 'Delete this test set and rewind the analysis point to the latest remaining closed review?'
       : 'Delete this test set? This will not change the analysis point.'
     if (!window.confirm(message)) return
 
@@ -103,9 +117,7 @@ export default function TestSetPage() {
   const failedTests = tests.filter((t) => t.status === 'fail').length
   const progress = totalTests > 0 ? (doneTests / totalTests) * 100 : 0
   const isEmptyReview = testSet.isEmptyReview && totalTests === 0
-  const canMarkPassed =
-    testSet.status === 'active' &&
-    (isEmptyReview || (failedTests === 0 && doneTests === totalTests && totalTests > 0))
+  const isClosedReview = testSet.status !== 'active'
 
   const priorityOrder = {high: 0, medium: 1, low: 2}
   const sortByPriority = (items: Test[]) =>
@@ -160,14 +172,17 @@ export default function TestSetPage() {
             {isEmptyReview && (
               <p className="mt-1 font-mono text-xs text-gray-600">{testSet.name}</p>
             )}
+            {testSet.resolutionNote && (
+              <p className="mt-2 text-sm text-gray-500">Resolution: {testSet.resolutionNote}</p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               type="button"
-              onClick={() => deleteTestSet(testSet.status === 'passed')}
+              onClick={() => deleteTestSet(isClosedReview)}
               disabled={deleting}
               className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed text-red-400 text-xs font-medium rounded-lg transition-colors border border-red-500/20">
-              {testSet.status === 'passed' ? 'Delete & rewind' : 'Delete'}
+              {isClosedReview ? 'Delete & rewind' : 'Delete'}
             </button>
           </div>
         </div>
@@ -197,8 +212,8 @@ export default function TestSetPage() {
             </p>
             <ul className="mt-2 space-y-1 pl-4 text-sm text-gray-400">
               <li className="list-disc">
-                <span className="text-gray-300 font-medium">Mark as reviewed</span> to advance the
-                analysis cursor without running any tests.
+                <span className="text-gray-300 font-medium">Not relevant</span> to advance the
+                analysis cursor with no retest required.
               </li>
               <li className="list-disc">Add a manual test below if you disagree with the AI.</li>
               <li className="list-disc">
@@ -422,33 +437,36 @@ export default function TestSetPage() {
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <div className="text-sm text-gray-500">
               {isEmptyReview ? (
-                <span>Advances the analysis cursor without testing.</span>
+                <span>Mark this range as not relevant to advance the analysis cursor.</span>
               ) : (
-                !canMarkPassed &&
-                (failedTests > 0 ? (
-                  <span className="text-red-400">
-                    {failedTests} failed test{failedTests > 1 ? 's' : ''}
-                  </span>
-                ) : (
-                  <span>Complete all tests to mark as passed</span>
-                ))
+                <span>
+                  Mark this test set as reviewed, or skip it if it is not relevant for QA.
+                </span>
               )}
             </div>
-            <button
-              onClick={markPassed}
-              disabled={!canMarkPassed || marking}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg transition-colors">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path
-                  d="M2 7l3.5 3.5L12 3.5"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {marking ? 'Saving...' : isEmptyReview ? 'Mark as reviewed' : 'Mark as Passed'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => closeReview('not_required')}
+                disabled={marking}
+                className="px-4 py-2.5 border border-gray-700 hover:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 font-medium text-sm rounded-lg transition-colors">
+                Not relevant
+              </button>
+              <button
+                onClick={() => closeReview('reviewed')}
+                disabled={marking}
+                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg transition-colors">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path
+                    d="M2 7l3.5 3.5L12 3.5"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                {marking ? 'Saving...' : 'Mark reviewed'}
+              </button>
+            </div>
           </div>
         </div>
       )}

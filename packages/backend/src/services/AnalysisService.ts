@@ -391,7 +391,13 @@ function mergeStringArrays(a: string[], b: string[]): string[] {
   return [...new Set([...a, ...b].map((item) => item.trim()).filter(Boolean))]
 }
 
-export function markTestSetPassed(testSetId: string): void {
+export type TestSetResolutionStatus = 'passed' | 'failed' | 'reviewed' | 'not_required'
+
+export function closeTestSetReview(
+  testSetId: string,
+  status: TestSetResolutionStatus,
+  resolutionNote?: string
+): void {
   const db = getDb()
 
   const testSet = db.prepare('SELECT commit_ranges FROM test_sets WHERE id = ?').get(testSetId) as
@@ -430,12 +436,31 @@ export function markTestSetPassed(testSetId: string): void {
       }
     }
 
+    if (status === 'reviewed' || status === 'not_required') {
+      db.prepare(
+        `
+        UPDATE tests
+        SET status = 'skip'
+        WHERE test_set_id = ?
+          AND status NOT IN ('pass', 'fail')
+      `
+      ).run(testSetId)
+    }
+
     db.prepare(
       `
-      UPDATE test_sets SET status = 'passed', completed_at = datetime('now') WHERE id = ?
+      UPDATE test_sets
+      SET status = ?,
+          resolution_note = ?,
+          completed_at = datetime('now')
+      WHERE id = ?
     `
-    ).run(testSetId)
+    ).run(status, normalizeResolutionNote(resolutionNote), testSetId)
   })()
+}
+
+export function markTestSetPassed(testSetId: string): void {
+  closeTestSetReview(testSetId, 'passed')
 }
 
 export function deleteTestSet(testSetId: string, options: {rewind?: boolean} = {}): void {
@@ -472,12 +497,12 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
   const repos = db
     .prepare('SELECT id FROM repositories WHERE project_id = ?')
     .all(projectId) as Array<{id: string}>
-  const passedTestSets = db
+  const closedTestSets = db
     .prepare(
       `
       SELECT commit_ranges
       FROM test_sets
-      WHERE project_id = ? AND status = 'passed'
+      WHERE project_id = ? AND status IN ('passed', 'failed', 'reviewed', 'not_required')
       ORDER BY created_at DESC, rowid DESC
     `
     )
@@ -485,7 +510,7 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
 
   const latestAnalyzedHashByBranch = new Map<string, string | null>()
 
-  for (const testSet of passedTestSets) {
+  for (const testSet of closedTestSets) {
     const commitRanges = JSON.parse(testSet.commit_ranges) as Record<string, {to: string}>
 
     for (const branch of branches) {
@@ -525,6 +550,11 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
     updateBranch.run(latestAnalyzedHashByBranch.get(branch.id) ?? null, branch.id)
   }
   updateRepo.run(projectId)
+}
+
+function normalizeResolutionNote(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 function getActiveBranch(repo: Repository): RepositoryBranch | null {
