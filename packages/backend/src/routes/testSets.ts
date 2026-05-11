@@ -1,6 +1,6 @@
 import {Router} from 'express'
 import {getDb} from '../db/index.js'
-import {deleteTestSet, markTestSetPassed} from '../services/AnalysisService.js'
+import {closeTestSetReview, deleteTestSet} from '../services/AnalysisService.js'
 
 export const testSetsRouter = Router({mergeParams: true})
 export const testSetActionsRouter = Router({mergeParams: true})
@@ -73,16 +73,22 @@ testSetActionsRouter.patch('/:testSetId', (req, res) => {
     | undefined
   if (!testSet) return res.status(404).json({error: 'Test set not found'})
 
-  const {status, name} = req.body as {status?: string; name?: string}
+  const {status, name, resolutionNote} = req.body as {
+    status?: string
+    name?: string
+    resolutionNote?: string
+  }
 
-  if (status === 'passed') {
+  if (isClosingStatus(status)) {
     try {
-      markTestSetPassed(req.params.testSetId)
+      closeTestSetReview(req.params.testSetId, status, resolutionNote)
     } catch (err) {
       return res
         .status(500)
-        .json({error: err instanceof Error ? err.message : 'Failed to mark as passed'})
+        .json({error: err instanceof Error ? err.message : 'Failed to close review'})
     }
+  } else if (status !== undefined && status !== 'active') {
+    return res.status(400).json({error: 'Invalid test set status'})
   } else {
     db.prepare('UPDATE test_sets SET status = ?, name = ? WHERE id = ?').run(
       status ?? testSet.status,
@@ -129,6 +135,7 @@ function toDto(
       commitRanges as Record<string, {from: string | null; to: string}>
     ),
     aiSummary: r.ai_summary ?? null,
+    resolutionNote: r.resolution_note ?? null,
     regressions:
       typeof r.regressions === 'string'
         ? JSON.parse(r.regressions as string)
@@ -146,6 +153,14 @@ function toDto(
 }
 
 type ChecklistCounts = {total: number; pass: number; fail: number; skip: number; notTested: number}
+
+function isClosingStatus(
+  status: string | undefined
+): status is 'passed' | 'failed' | 'reviewed' | 'not_required' {
+  return (
+    status === 'passed' || status === 'failed' || status === 'reviewed' || status === 'not_required'
+  )
+}
 
 function checklistCountsFromRow(r: Record<string, unknown>): ChecklistCounts {
   if (r.checklist_total !== undefined && r.checklist_total !== null) {
