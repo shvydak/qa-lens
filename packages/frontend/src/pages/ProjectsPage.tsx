@@ -173,7 +173,9 @@ function ProjectCard({
               title={hasPendingChanges ? 'Analysis required' : 'Up to date'}
             />
           )}
-          <h3 className="font-semibold text-gray-100 text-base leading-snug truncate">{project.name}</h3>
+          <h3 className="font-semibold text-gray-100 text-base leading-snug truncate">
+            {project.name}
+          </h3>
         </div>
         <button
           type="button"
