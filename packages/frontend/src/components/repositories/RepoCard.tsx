@@ -97,6 +97,7 @@ export default function RepoCard({
   onArchiveBranch,
   untrackedBranches = [],
   syncingBranches = false,
+  managementMode = false,
 }: {
   repo: Repository
   listSyncOkAt?: number | null
@@ -110,6 +111,7 @@ export default function RepoCard({
   onArchiveBranch: (branchId: string) => Promise<void>
   untrackedBranches?: RemoteBranch[]
   syncingBranches?: boolean
+  managementMode?: boolean
 }) {
   const analysisCursor = repo.analysisCursor ?? (repo.lastAnalyzedCommitHash ? 'baseline' : 'none')
   const hasNew = (repo.unanalyzedCount ?? 0) > 0
@@ -382,30 +384,34 @@ export default function RepoCard({
                     />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const label = repo.githubUrl ?? repoName(repo.localPath)
-                    if (
-                      !window.confirm(`Remove "${label}" from this project? This cannot be undone.`)
-                    ) {
-                      return
-                    }
-                    onDelete()
-                  }}
-                  title="Delete"
-                  className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path
-                      d="M1.5 3h9M5 3V1.5h2V3M4.5 5v4.5M7.5 5v4.5M2 3l.5 7.5h7L10 3"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
+                {managementMode && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const label = repo.githubUrl ?? repoName(repo.localPath)
+                      if (
+                        !window.confirm(
+                          `Remove "${label}" from this project? This cannot be undone.`
+                        )
+                      ) {
+                        return
+                      }
+                      onDelete()
+                    }}
+                    title="Remove repository"
+                    className="rounded-lg border border-red-400/20 bg-red-400/10 p-1.5 text-red-300 transition-all hover:border-red-400/35 hover:bg-red-400/15 hover:text-red-200">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path
+                        d="M1.5 3h9M5 3V1.5h2V3M4.5 5v4.5M7.5 5v4.5M2 3l.5 7.5h7L10 3"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           </div>

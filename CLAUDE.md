@@ -69,6 +69,10 @@ Managed repo deletion tests: cover folder cleanup on repo/project delete, shared
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
 
+## Development principles
+
+**DRY — reuse before creating:** Before adding anything new (endpoint, component, hook, query, utility), check whether existing code already covers the need. Reuse and compose what's there. Only introduce something new when existing code genuinely can't be made to fit without unreasonable contortion.
+
 ## Architecture
 
 npm workspaces monorepo with two packages:

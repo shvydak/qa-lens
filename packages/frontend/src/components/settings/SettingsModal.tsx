@@ -250,6 +250,22 @@ function AIProviderPanel() {
   }
 
   const current = settings.availableProviders.find((p) => p.id === settings.defaultAiProvider)
+  const visibleModelFields =
+    settings.defaultAiProvider === null
+      ? CLI_MODEL_FIELDS
+      : CLI_MODEL_FIELDS.filter((field) => field.provider === settings.defaultAiProvider)
+  const modelSectionTitle =
+    settings.defaultAiProvider === null
+      ? 'CLI models for waterfall'
+      : visibleModelFields.length > 0
+        ? `${current?.label ?? 'Selected provider'} model`
+        : 'Provider model'
+  const modelSectionHelp =
+    settings.defaultAiProvider === null
+      ? 'Auto mode can use any available CLI provider, so each provider keeps its own model preference.'
+      : visibleModelFields.length > 0
+        ? 'Choose the model used by the selected provider, or leave it empty to use the CLI default.'
+        : 'This provider does not use a local CLI model setting.'
 
   return (
     <div className="p-6 space-y-6">
@@ -333,70 +349,75 @@ function AIProviderPanel() {
       <section className="pt-5 border-t border-gray-800/60">
         <div className="flex items-start justify-between gap-4 mb-3">
           <div>
-            <p className="text-xs font-medium text-gray-400">CLI models</p>
-            <p className="text-xs text-gray-600 leading-relaxed mt-1">
-              Choose a model known by the installed CLI, or enter a model name manually.
-            </p>
+            <p className="text-xs font-medium text-gray-400">{modelSectionTitle}</p>
+            <p className="text-xs text-gray-600 leading-relaxed mt-1">{modelSectionHelp}</p>
           </div>
         </div>
-        <div className="space-y-3">
-          {CLI_MODEL_FIELDS.map((field) => {
-            const saved = settings.aiProviderModels[field.provider] ?? ''
-            const dirty = modelDrafts[field.provider].trim() !== saved
-            const options = settings.aiModelOptions[field.provider] ?? []
-            return (
-              <div key={field.provider} className="space-y-1.5">
-                <label
-                  htmlFor={`model-${field.provider}`}
-                  className="block text-[11px] font-medium text-gray-500">
-                  {field.label}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id={`model-${field.provider}`}
-                    value={modelDrafts[field.provider]}
-                    onChange={(e) =>
-                      setModelDrafts((prev) => ({...prev, [field.provider]: e.target.value}))
-                    }
-                    placeholder={field.placeholder}
-                    disabled={saving}
-                    className="min-w-0 flex-1 rounded-lg border border-gray-800/80 bg-gray-950/50 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-700 outline-none transition-colors focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30"
-                  />
-                  <button
-                    type="button"
-                    disabled={saving || !dirty}
-                    onClick={() => saveModel(field.provider)}
-                    className={`rounded-lg px-3 text-xs font-medium transition-colors ${
-                      dirty
-                        ? 'bg-indigo-600 text-white hover:bg-indigo-500'
-                        : 'bg-gray-800/60 text-gray-600 cursor-not-allowed'
-                    }`}>
-                    Save
-                  </button>
-                </div>
-                <p className="text-[11px] text-gray-700">{field.hint}</p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <ModelChip
-                    label="CLI default"
-                    active={!modelDrafts[field.provider].trim()}
-                    onClick={() => setModelDrafts((prev) => ({...prev, [field.provider]: ''}))}
-                  />
-                  {options.map((option) => (
-                    <ModelChip
-                      key={option.id}
-                      label={option.label}
-                      active={modelDrafts[field.provider].trim() === option.id}
-                      muted={option.source === 'saved'}
-                      onClick={() =>
-                        setModelDrafts((prev) => ({...prev, [field.provider]: option.id}))
+        {visibleModelFields.length > 0 ? (
+          <div className="space-y-3">
+            {visibleModelFields.map((field) => {
+              const saved = settings.aiProviderModels[field.provider] ?? ''
+              const dirty = modelDrafts[field.provider].trim() !== saved
+              const options = settings.aiModelOptions[field.provider] ?? []
+              return (
+                <div key={field.provider} className="space-y-1.5">
+                  <label
+                    htmlFor={`model-${field.provider}`}
+                    className="block text-[11px] font-medium text-gray-500">
+                    {field.label}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id={`model-${field.provider}`}
+                      value={modelDrafts[field.provider]}
+                      onChange={(e) =>
+                        setModelDrafts((prev) => ({...prev, [field.provider]: e.target.value}))
                       }
+                      placeholder={field.placeholder}
+                      disabled={saving}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-800/80 bg-gray-950/50 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-700 outline-none transition-colors focus:border-indigo-500/70 focus:ring-1 focus:ring-indigo-500/30"
                     />
-                  ))}
+                    <button
+                      type="button"
+                      disabled={saving || !dirty}
+                      onClick={() => saveModel(field.provider)}
+                      className={`rounded-lg px-3 text-xs font-medium transition-colors ${
+                        dirty
+                          ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+                          : 'bg-gray-800/60 text-gray-600 cursor-not-allowed'
+                      }`}>
+                      Save
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-700">{field.hint}</p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <ModelChip
+                      label="CLI default"
+                      active={!modelDrafts[field.provider].trim()}
+                      onClick={() => setModelDrafts((prev) => ({...prev, [field.provider]: ''}))}
+                    />
+                    {options.map((option) => (
+                      <ModelChip
+                        key={option.id}
+                        label={option.label}
+                        active={modelDrafts[field.provider].trim() === option.id}
+                        muted={option.source === 'saved'}
+                        onClick={() =>
+                          setModelDrafts((prev) => ({...prev, [field.provider]: option.id}))
+                        }
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-800/70 bg-gray-950/40 px-3 py-3 text-xs text-gray-600">
+            Anthropic API uses the configured API provider directly, so there is no CLI model to
+            customize here.
+          </div>
+        )}
       </section>
 
       <section className="pt-5 border-t border-gray-800/60">

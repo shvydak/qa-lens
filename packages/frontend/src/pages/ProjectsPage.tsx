@@ -1,10 +1,11 @@
 import {useState, useEffect} from 'react'
 import {useNavigate} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
-import type {Project} from '../types/index.ts'
+import type {Project, Repository} from '../types/index.ts'
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [pendingByProject, setPendingByProject] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const navigate = useNavigate()
@@ -13,6 +14,16 @@ export default function ProjectsPage() {
     try {
       const data = await apiFetch<Project[]>('GET', '/api/projects')
       setProjects(data)
+      const results = await Promise.allSettled(
+        data.map((p) => apiFetch<Repository[]>('GET', `/api/projects/${p.id}/repos`))
+      )
+      const pending: Record<string, boolean> = {}
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          pending[data[i].id] = result.value.some((r) => (r.unanalyzedCount ?? 0) > 0)
+        }
+      })
+      setPendingByProject(pending)
     } finally {
       setLoading(false)
     }
@@ -111,6 +122,7 @@ export default function ProjectsPage() {
             <ProjectCard
               key={p.id}
               project={p}
+              hasPendingChanges={pendingByProject[p.id]}
               onOpen={() => navigate(`/projects/${p.id}`)}
               onDelete={(e) => deleteProject(p.id, e)}
             />
@@ -134,10 +146,12 @@ export default function ProjectsPage() {
 
 function ProjectCard({
   project,
+  hasPendingChanges,
   onOpen,
   onDelete,
 }: {
   project: Project
+  hasPendingChanges: boolean | undefined
   onOpen: () => void
   onDelete: (e: React.MouseEvent) => void
 }) {
@@ -152,7 +166,17 @@ function ProjectCard({
       onClick={onOpen}
       className="group relative flex flex-col p-5 bg-gray-900 border border-gray-800/50 rounded-xl cursor-pointer hover:border-gray-700/80 hover:bg-gray-900/80 transition-all duration-150">
       <div className="flex items-start justify-between gap-3 mb-3">
-        <h3 className="font-semibold text-gray-100 text-base leading-snug">{project.name}</h3>
+        <div className="flex items-center gap-2 min-w-0">
+          {hasPendingChanges !== undefined && (
+            <span
+              className={`flex-shrink-0 w-2 h-2 rounded-full ${hasPendingChanges ? 'bg-amber-400' : 'bg-emerald-500'}`}
+              title={hasPendingChanges ? 'Analysis required' : 'Up to date'}
+            />
+          )}
+          <h3 className="font-semibold text-gray-100 text-base leading-snug truncate">
+            {project.name}
+          </h3>
+        </div>
         <button
           type="button"
           onClick={onDelete}

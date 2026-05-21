@@ -30,7 +30,7 @@ export default function ProjectDetailPage() {
   })
   const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const [showRepoForm, setShowRepoForm] = useState(false)
-  const [editingDesc, setEditingDesc] = useState(false)
+  const [editingProject, setEditingProject] = useState(false)
   const [descDraft, setDescDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [syncingRepoId, setSyncingRepoId] = useState<string | null>(null)
@@ -173,7 +173,7 @@ export default function ProjectDetailPage() {
       description: descDraft,
     })
     setProject(updated)
-    setEditingDesc(false)
+    setEditingProject(false)
   }
 
   const deleteRepo = async (repoId: string) => {
@@ -300,17 +300,25 @@ export default function ProjectDetailPage() {
             )}
           </div>
 
-          {!editingDesc && (
+          {!editingProject && (
             <button
-              onClick={() => setEditingDesc(true)}
+              type="button"
+              onClick={() => setEditingProject(true)}
               className="self-start rounded-lg border border-gray-800 px-3 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-700 hover:text-gray-300">
-              Edit context
+              Edit project
             </button>
           )}
         </div>
 
+        {editingProject && (
+          <div className="mt-4 rounded-xl border border-red-400/15 bg-red-400/5 px-3 py-2 text-xs text-red-200/80">
+            Edit mode is on. You can update project context and repository removal controls are
+            visible below. Removal still requires confirmation.
+          </div>
+        )}
+
         <div className="mt-4 border-t border-gray-800/60 pt-4">
-          {editingDesc ? (
+          {editingProject ? (
             <div className="space-y-2">
               <textarea
                 value={descDraft}
@@ -327,7 +335,7 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setEditingDesc(false)
+                    setEditingProject(false)
                     setDescDraft(project.description)
                   }}
                   className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs rounded-lg transition-colors">
@@ -336,14 +344,16 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           ) : project.description ? (
-            <button onClick={() => setEditingDesc(true)} className="group block w-full text-left">
+            <button
+              onClick={() => setEditingProject(true)}
+              className="group block w-full text-left">
               <p className="max-h-24 max-w-5xl overflow-y-auto pr-3 text-sm leading-6 text-gray-500 transition-colors group-hover:text-gray-400">
                 {project.description}
               </p>
             </button>
           ) : (
             <button
-              onClick={() => setEditingDesc(true)}
+              onClick={() => setEditingProject(true)}
               className="text-sm text-gray-700 transition-colors hover:text-gray-500 italic">
               + Add project context for AI
             </button>
@@ -524,6 +534,7 @@ export default function ProjectDetailPage() {
                   onArchiveBranch={(branchId) => archiveRepoBranch(repo.id, branchId)}
                   untrackedBranches={untrackedBranchesByRepo[repo.id]}
                   syncingBranches={syncingRepoId === repo.id}
+                  managementMode={editingProject}
                 />
               ))}
             </div>
