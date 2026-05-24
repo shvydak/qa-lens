@@ -11,7 +11,7 @@ npm install
 # Start both backend and frontend in dev mode
 npm run dev
 
-# Run tests (backend)
+# Run tests (backend + frontend)
 npm test
 
 # Type-check all packages
@@ -30,7 +30,7 @@ npm run build
 npm start
 ```
 
-**Linting:** Use root `npm run lint`; `packages/backend` has no standalone `lint` script.
+**Linting:** Use root `npm run lint`; `packages/backend` has no standalone `lint` script. Run `npm run format` before `npm run lint` — Prettier violations surface as lint errors (`prettier/prettier`).
 
 **Git hooks (husky):** pre-commit runs format + lint + type-check; pre-push also runs tests.
 Set `SKIP_PRECOMMIT=1` or `SKIP_PREPUSH=1` to bypass. Set `SKIP_TESTS=1` to skip tests on push.
@@ -58,6 +58,8 @@ beforeEach(() => {
 
 Use `vi.hoisted(() => vi.fn())` for mocks referenced inside `vi.mock` factory functions.
 
+**Mocking Node async modules** (e.g., `node:fs/promises`) in route tests: declare mock fns with `vi.hoisted`, pass them into `vi.mock`, and call `mockFn.mockClear()` in `beforeEach` to prevent call-count leakage across tests. See `src/__tests__/routes/tests.test.ts`.
+
 When adding a new router in `index.ts`, also register it in `src/__tests__/helpers/app.ts` — `createTestApp` is a separate mount point, so route tests will 404 otherwise.
 
 `config` (from `src/config.ts`) is a plain mutable object; per-test override values directly in `beforeEach` (e.g. `config.anthropicApiKey = 'test-key'`) instead of mocking the module.
@@ -66,12 +68,22 @@ Targeted backend tests: `cd packages/backend && npm test -- src/__tests__/routes
 
 Managed repo deletion tests: cover folder cleanup on repo/project delete, shared-path preservation, outside-`MANAGED_REPOS_PATH` guard, unknown repo `404`, and failed clone/setup cleanup.
 
+**Frontend tests:** **vitest** + **jsdom** + React Testing Library (config in `packages/frontend/vitest.config.ts`, setup in `src/test/setup.ts` registering jest-dom matchers). Run with `cd packages/frontend && npm test`. Co-locate `*.test.ts(x)` next to the unit under test. Cover pure logic (e.g. `pages/testSet/helpers.ts`, `pages/projectDetail/testSetGrouping.ts`, `api/client.ts`) and presentational components with props/handlers. Root `npm test` runs both packages via `--workspaces --if-present`.
+
 Backend runs on `http://localhost:3001`, frontend on `http://localhost:5173`.  
 The SQLite database file is created at `packages/qa-lens.db` on first run.
 
 ## Development principles
 
-**DRY — reuse before creating:** Before adding anything new (endpoint, component, hook, query, utility), check whether existing code already covers the need. Reuse and compose what's there. Only introduce something new when existing code genuinely can't be made to fit without unreasonable contortion.
+**DRY — reuse before creating:** Before adding anything new (endpoint, component, hook, query, utility), check whether existing code already covers the need. Reuse and compose what's there. Only introduce something new when existing code genuinely can't be made to fit without unreasonable contortion. Shared building blocks already exist: `parseStringArray` (`utils/json.ts`); `projectFromRow`/`repoFromRow`/`repoBranchFromRow`/`testToDto`/`attachmentToDto`/`credentialToDto` (`db/mappers.ts`); repo route helpers (`routes/repositories.helpers.ts`). Don't re-inline DTO/parse logic in routes.
+
+**Map rows, never cast them:** Convert every DB row through a `*FromRow`/`*ToDto` mapper (`db/mappers.ts`) before use; never `db.prepare(...).get(...) as DomainType`. Raw casts keep `snake_case` keys and skip timestamp normalization (this silently produced an always-`undefined` `createdAt`). Mappers normalize SQLite UTC to ISO `Z` via `sqliteUtcToIso`.
+
+**Wrap async Express routes:** every `async` route handler must be wrapped in `asyncHandler` (`routes/asyncHandler.ts`). Express 4 does not forward rejected promises to the error middleware, so an unwrapped throw/rejection hangs the request.
+
+**Keep files focused:** when a route/service/page nears ~400–500 lines, extract pure logic into a co-located helper module (`routes/<x>.helpers.ts`, `services/<x>/helpers.ts`, `pages/<x>/helpers.ts`) and split large React screens into panel/section subcomponents (see `components/settings/*Panel.tsx`). Give every extracted pure function a unit test.
+
+**Never load secrets into memory for DTOs:** select `token IS NOT NULL AS has_token`, not `token`; expose only `hasToken`/`hasAuthToken`, never the token value.
 
 ## Architecture
 
@@ -109,6 +121,8 @@ npm workspaces monorepo with two packages:
 
 **IDs:** `src/utils/ulid.ts` — custom time-sortable ID generator, no external dependency.
 
+**Test attachments:** Images uploaded to tests are stored as files under `config.uploadsPath` (default `packages/uploads/`, env `UPLOADS_PATH`) and served at `/uploads/<filename>` via `express.static`. Upload route accepts base64 data URLs in JSON body (limit raised to `10mb`); on test delete the route fetches filenames first and unlinks files via `Promise.allSettled` before removing the DB row.
+
 **Route responses** always wrap in `{ data: T }` on success, `{ error: string }` on failure.
 
 **Key constraint:** When `PATCH /api/test-sets/:id` receives a closing status (`passed`, `failed`, `reviewed`, or `not_required`), it must call `closeTestSetReview()` (not a plain UPDATE) to advance `last_analyzed_commit_hash` on all linked repos. This is the mechanism that defines "what's new" for the next analysis.
@@ -124,6 +138,8 @@ npm workspaces monorepo with two packages:
 **Analysis runs:** Each initial/update analysis inserts an `analysis_runs` row; AI-created tests store `analysis_run_id` so the UI can group tests by update while still sorting by priority.
 
 **Read-only Git:** GitHub operations must remain read-only (`ls-remote`, `clone`, `fetch`, `log`, `diff`, `rev-parse`); never add `push`, `commit`, `merge`, `rebase`, `reset`, or remote delete flows.
+
+**Remote URL safety:** any `GitService` function taking a remote URL must call `assertSafeRemoteUrl` (GitHub HTTPS only), pass `--` before positional args, and run under `GIT_ALLOW_PROTOCOL=https` — this blocks `ext::`/`file://`/ssh transports and `-`-prefixed argument injection. All git runs via `execFile` (never shell interpolation).
 
 **GitHub tokens:** PATs are stored locally for MVP and passed to Git-over-HTTPS via Basic auth (`x-access-token:<token>`); API responses expose only `hasAuthToken`, never the token.
 
@@ -153,7 +169,7 @@ npm workspaces monorepo with two packages:
 
 **TestSet DTO / `checklistCounts`:** `GET /api/projects/:id/test-sets` adds per-row aggregates via SQL subqueries on `tests`; `GET /api/test-sets/:id` derives counts from loaded tests; `PATCH` (and other `SELECT *` rows) uses `fetchChecklistCounts` in `routes/testSets.ts` when list-query aliases are absent.
 
-`**Array#map` + DTO mappers:\*\* If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
+**Array#map + DTO mappers:** If a mapper accepts an optional second argument, never `rows.map(toDto)` — `map` passes the index as that parameter. Use `(row) => toDto(row)`.
 
 **AI debug dump:** Run backend with `AI_DEBUG_DUMP=1` to write each AI call's `prompt.txt`, `response.json`, and `meta.json` to `packages/backend/.ai-debug/` (gitignored). Use this to inspect what the model actually received and returned without modifying production code paths. `meta.json` records `requestedModel` (Settings selection) and `usedModels` (from `modelUsage` in CLI wrapper) — proves which model executed.
 
@@ -179,7 +195,7 @@ npm workspaces monorepo with two packages:
 
 **Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).
 
-**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), `**checklistCounts`** (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. `**TestSetCard**`renders the segmented checklist bar;`**ProjectDetailPage**`passes`**executionUpdating\*\*`when`analysisStatus.running && activeTestSet?.id === ts.id`.
+**Test sets list API:** `GET /api/projects/:id/test-sets` includes `analysisRunCount` / `latestAnalysisRunAt` from `analysis_runs` (`GROUP BY test_sets.id`), `checklistCounts` (execution progress on `tests`); UI may group history by `analysisContextId` / `branchSignature`. `TestSetCard` renders the segmented checklist bar; `ProjectDetailPage` passes `executionUpdating` when `analysisStatus.running && activeTestSet?.id === ts.id`.
 
 **Active project context:** `src/contexts/ActiveProjectContext.tsx` tracks `activeProjectId` and `testSetVersion`. Pages call `setActiveProjectId(id)` on mount; `invalidateTestSets()` triggers a sidebar re-fetch of test sets — call it after any mutation that changes `checklistCounts` (e.g. test status updates).
 
@@ -206,6 +222,7 @@ Key variables:
 | `AI_MODELS_CURSOR`   | —                                | Extra Cursor CLI model choices shown in Settings       |
 | `ANTHROPIC_API_KEY`  | —                                | Required only if `anthropic` provider is used          |
 | `AI_DEBUG_DUMP`      | —                                | When set, dump prompt/response/meta to `.ai-debug/`    |
+| `UPLOADS_PATH`       | `packages/uploads`               | Directory for test attachment image files              |
 
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 

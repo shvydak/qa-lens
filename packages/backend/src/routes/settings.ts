@@ -1,5 +1,7 @@
 import {Router} from 'express'
 import {getDb} from '../db/index.js'
+import {credentialToDto} from '../db/mappers.js'
+import {asyncHandler} from './asyncHandler.js'
 import {ulid} from '../utils/ulid.js'
 import {
   ALL_AI_PROVIDERS,
@@ -16,17 +18,20 @@ import type {AIProvider, CLIModelProvider} from '../config.js'
 
 export const settingsRouter = Router()
 
-settingsRouter.get('/', async (_req, res) => {
-  const providers = await getAvailableProviders()
-  res.json({
-    data: {
-      defaultAiProvider: getDefaultAIProvider(),
-      aiProviderModels: getAIProviderModels(),
-      aiModelOptions: getAIModelOptions(),
-      availableProviders: providers,
-    },
+settingsRouter.get(
+  '/',
+  asyncHandler(async (_req, res) => {
+    const providers = await getAvailableProviders()
+    res.json({
+      data: {
+        defaultAiProvider: getDefaultAIProvider(),
+        aiProviderModels: getAIProviderModels(),
+        aiModelOptions: getAIModelOptions(),
+        availableProviders: providers,
+      },
+    })
   })
-})
+)
 
 settingsRouter.patch('/', (req, res) => {
   const {defaultAiProvider, aiProviderModels} = req.body as {
@@ -68,14 +73,14 @@ settingsRouter.get('/credentials', (_req, res) => {
   const rows = getDb()
     .prepare(
       `
-      SELECT id, project_id, name, token, created_at
+      SELECT id, project_id, name, token IS NOT NULL AS has_token, created_at
       FROM github_credentials
       WHERE project_id IS NULL
       ORDER BY name
     `
     )
     .all()
-  res.json({data: rows.map(credentialToDto)})
+  res.json({data: rows.map((row) => credentialToDto(row))})
 })
 
 settingsRouter.post('/credentials', (req, res) => {
@@ -100,7 +105,11 @@ settingsRouter.post('/credentials', (req, res) => {
     throw err
   }
 
-  const row = getDb().prepare('SELECT * FROM github_credentials WHERE id = ?').get(id)
+  const row = getDb()
+    .prepare(
+      'SELECT id, project_id, name, token IS NOT NULL AS has_token, created_at FROM github_credentials WHERE id = ?'
+    )
+    .get(id)
   return res.status(201).json({data: credentialToDto(row)})
 })
 
@@ -111,15 +120,3 @@ settingsRouter.delete('/credentials/:id', (req, res) => {
   if (result.changes === 0) return res.status(404).json({error: 'Credential not found'})
   return res.json({data: {ok: true}})
 })
-
-function credentialToDto(row: unknown) {
-  const r = row as Record<string, unknown>
-  return {
-    id: r.id,
-    projectId: r.project_id ?? null,
-    scope: r.project_id ? 'project' : 'global',
-    name: r.name,
-    hasToken: Boolean(r.token),
-    createdAt: r.created_at,
-  }
-}

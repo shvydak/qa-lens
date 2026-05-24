@@ -16,6 +16,10 @@ const ALLOWED_GIT_COMMANDS = new Set([
   'status',
 ])
 
+// Restrict git to the HTTPS transport so a hostile URL cannot select a
+// command-executing transport such as `ext::` or `file://`.
+const GIT_ENV = {...process.env, GIT_ALLOW_PROTOCOL: 'https'}
+
 interface GitOptions {
   token?: string | null
 }
@@ -32,6 +36,7 @@ async function git(
       cwd,
       timeout,
       maxBuffer: 20 * 1024 * 1024,
+      env: GIT_ENV,
     })
     return stdout.trim()
   } catch (err) {
@@ -49,6 +54,7 @@ async function gitNoCwd(
     const {stdout} = await execFileAsync('git', withAuth(args, options.token), {
       timeout,
       maxBuffer: 20 * 1024 * 1024,
+      env: GIT_ENV,
     })
     return stdout.trim()
   } catch (err) {
@@ -60,6 +66,28 @@ function assertAllowedGitCommand(args: string[]): void {
   const command = args[0]
   if (!command || !ALLOWED_GIT_COMMANDS.has(command)) {
     throw new Error(`Refusing unsafe git command: git ${args.join(' ')}`)
+  }
+}
+
+/**
+ * Reject any remote URL that is not a plain GitHub HTTPS URL. This blocks
+ * argument injection (a URL starting with `-` parsed as a git option) and
+ * command-executing transports like `ext::`, `file://`, or `ssh`.
+ */
+function assertSafeRemoteUrl(url: string): void {
+  const trimmed = url.trim()
+  if (!trimmed || trimmed.startsWith('-')) {
+    throw new Error('Invalid repository URL')
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new Error('Only GitHub HTTPS repository URLs are supported')
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (parsed.protocol !== 'https:' || (host !== 'github.com' && host !== 'www.github.com')) {
+    throw new Error('Only GitHub HTTPS repository URLs are supported')
   }
 }
 
@@ -84,6 +112,7 @@ function safeGitErrorMessage(err: unknown): string {
 
 export const __testing = {
   assertAllowedGitCommand,
+  assertSafeRemoteUrl,
   safeGitErrorMessage,
   withAuth,
 }
@@ -114,7 +143,8 @@ export async function listRemoteBranches(
   githubUrl: string,
   token?: string | null
 ): Promise<RemoteBranch[]> {
-  const output = await gitNoCwd(['ls-remote', '--heads', githubUrl], 30_000, {token})
+  assertSafeRemoteUrl(githubUrl)
+  const output = await gitNoCwd(['ls-remote', '--heads', '--', githubUrl], 30_000, {token})
   if (!output) return []
 
   return output
@@ -133,7 +163,8 @@ export async function cloneRepository(
   localPath: string,
   token?: string | null
 ): Promise<void> {
-  await gitNoCwd(['clone', '--no-tags', githubUrl, localPath], 120_000, {token})
+  assertSafeRemoteUrl(githubUrl)
+  await gitNoCwd(['clone', '--no-tags', '--', githubUrl, localPath], 120_000, {token})
 }
 
 export async function checkoutBranch(localPath: string, branch: string): Promise<void> {
@@ -152,13 +183,10 @@ export async function getCommitsSince(
   sinceHash: string | null
 ): Promise<CommitInfo[]> {
   const range = sinceHash ? `${sinceHash}..origin/${branch}` : `-50`
-  const args = sinceHash
-    ? ['log', range, '--format=%H|%h|%an|%ai|%s']
-    : ['log', range, '--format=%H|%h|%an|%ai|%s']
 
   let output: string
   try {
-    output = await git(args, localPath)
+    output = await git(['log', range, '--format=%H|%h|%an|%ai|%s'], localPath)
   } catch {
     return []
   }

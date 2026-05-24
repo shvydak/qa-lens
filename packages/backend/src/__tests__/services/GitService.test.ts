@@ -41,4 +41,19 @@ describe('GitService auth helpers', () => {
     )
     expect(message).not.toContain('secret-token')
   })
+
+  it('accepts plain GitHub HTTPS URLs', () => {
+    expect(() => __testing.assertSafeRemoteUrl('https://github.com/org/repo')).not.toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('https://github.com/org/repo.git')).not.toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('https://www.github.com/org/repo')).not.toThrow()
+  })
+
+  it('rejects command-executing transports and argument injection', () => {
+    expect(() => __testing.assertSafeRemoteUrl('ext::sh -c "touch /tmp/pwn"')).toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('--upload-pack=touch /tmp/pwn')).toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('file:///etc/passwd')).toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('git@github.com:org/repo.git')).toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('https://evil.com/org/repo')).toThrow()
+    expect(() => __testing.assertSafeRemoteUrl('')).toThrow()
+  })
 })

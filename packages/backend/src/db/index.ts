@@ -39,6 +39,7 @@ function runMigrations(db: Database.Database): void {
   ensureColumn(db, 'tests', 'technical_context', 'TEXT')
   ensureColumn(db, 'tests', 'analysis_run_id', 'TEXT')
   ensureColumn(db, 'tests', 'repository_branch_id', 'TEXT')
+  ensureColumn(db, 'tests', 'note', 'TEXT')
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_test_sets_context ON test_sets(analysis_context_id);
     CREATE INDEX IF NOT EXISTS idx_tests_analysis_run ON tests(analysis_run_id);

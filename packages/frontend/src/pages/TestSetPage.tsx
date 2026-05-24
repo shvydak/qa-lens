@@ -5,23 +5,24 @@ import type {TestSet, Test, Project} from '../types/index.ts'
 import {useActiveProject} from '../contexts/ActiveProjectContext.tsx'
 import TestItem, {getAreaBadgeStyle} from '../components/tests/TestItem.tsx'
 import AddTestForm from '../components/tests/AddTestForm.tsx'
+import TestSetInsights from '../components/testSets/TestSetInsights.tsx'
+import {
+  groupTestsByArea,
+  sortTestsByPriority,
+  STATUS_LABELS,
+  STATUS_STYLES,
+} from './testSet/helpers.ts'
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
 type ViewMode = 'priority' | 'update' | 'area'
-
-const STATUS_STYLES = {
-  active: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20',
-  passed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  failed: 'bg-red-500/15 text-red-400 border-red-500/20',
-  reviewed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  not_required: 'bg-gray-700/30 text-gray-300 border-gray-700/40',
-}
-const STATUS_LABELS = {
-  active: 'In progress',
-  passed: 'Passed',
-  failed: 'Failed',
-  reviewed: 'Reviewed',
-  not_required: 'No retest needed',
-}
 
 export default function TestSetPage() {
   const {id} = useParams<{id: string}>()
@@ -85,6 +86,25 @@ export default function TestSetPage() {
     const updated = await apiFetch<Test>('PATCH', `/api/tests/${test.id}`, {status: newStatus})
     setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
     invalidateTestSets()
+  }
+
+  const updateTestNote = async (testId: string, note: string | null) => {
+    const updated = await apiFetch<Test>('PATCH', `/api/tests/${testId}`, {note})
+    setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+  }
+
+  const uploadTestAttachment = async (testId: string, file: File) => {
+    const data = await readFileAsDataUrl(file)
+    const updated = await apiFetch<Test>('POST', `/api/tests/${testId}/attachments`, {data})
+    setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+  }
+
+  const deleteTestAttachment = async (testId: string, attachmentId: string) => {
+    const updated = await apiFetch<Test>(
+      'DELETE',
+      `/api/tests/${testId}/attachments/${attachmentId}`
+    )
+    setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
   }
 
   const deleteTest = async (testId: string) => {
@@ -158,20 +178,14 @@ export default function TestSetPage() {
       ? `${doneTests}/${totalTests} done`
       : 'No tests'
 
-  const priorityOrder = {high: 0, medium: 1, low: 2}
-  const sortByPriority = (items: Test[]) =>
-    [...items].sort((a, b) => {
-      const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
-      return diff !== 0 ? diff : a.sortOrder - b.sortOrder
-    })
-  const sortedTests = sortByPriority(tests)
+  const sortedTests = sortTestsByPriority(tests)
   const runById = new Map((testSet.analysisRuns ?? []).map((run) => [run.id, run]))
   const allAreaGroups = groupTestsByArea(tests)
   const areaGroups = allAreaGroups
     .filter((group) => !hiddenAreaKeys.includes(group.key))
     .map((group) => ({
       ...group,
-      tests: sortByPriority(group.tests),
+      tests: sortTestsByPriority(group.tests),
     }))
   const hiddenAreaCount = hiddenAreaKeys.filter((key) =>
     allAreaGroups.some((group) => group.key === key)
@@ -309,116 +323,7 @@ export default function TestSetPage() {
           </div>
         )}
 
-        {testSet.commitTargets && testSet.commitTargets.length > 0 && (
-          <div className="mb-4 p-4 bg-gray-900 border border-gray-800/50 rounded-xl">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Analyzed branches
-            </div>
-            <div className="space-y-2">
-              {testSet.commitTargets.map((target) => (
-                <div
-                  key={target.id}
-                  className="flex items-center justify-between gap-3 text-xs bg-gray-950/40 border border-gray-800/60 rounded-lg px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="font-mono text-gray-300 truncate">{target.repositoryPath}</div>
-                    <div className="font-mono text-indigo-300 mt-0.5">{target.branchName}</div>
-                  </div>
-                  <div className="flex-shrink-0 font-mono text-gray-500">
-                    {(target.from ?? 'start').slice(0, 7)}..{target.to.slice(0, 7)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {testSet.aiSummary && (
-          <div className="mb-4 p-4 bg-gray-900 border border-gray-800/50 rounded-xl">
-            <div className="flex items-center gap-2 mb-2">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 13 13"
-                fill="none"
-                className="text-indigo-400">
-                <path
-                  d="M6.5 1L8 5h4L9 7.5l1 4-3.5-2L3 11.5l1-4L1 5h4z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                AI Analysis
-              </span>
-            </div>
-            <p className="text-sm text-gray-300 leading-relaxed">{testSet.aiSummary}</p>
-          </div>
-        )}
-
-        {testSet.regressions?.length > 0 && (
-          <div className="mb-4 p-4 bg-amber-500/5 border border-amber-500/15 rounded-xl">
-            <div className="flex items-center gap-2 mb-2.5">
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 13 13"
-                fill="none"
-                className="text-amber-400">
-                <path
-                  d="M6.5 1.5L12 11.5H1L6.5 1.5z"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M6.5 5v3M6.5 9.5v.5"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                Possible Regressions
-              </span>
-            </div>
-            <ul className="space-y-1">
-              {testSet.regressions.map((r, i) => (
-                <li key={i} className="text-sm text-amber-300/80 flex items-start gap-2">
-                  <span className="text-amber-600 mt-1">·</span>
-                  {r}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {testSet.crossImpacts?.length > 0 && (
-          <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/15 rounded-xl">
-            <div className="flex items-center gap-2 mb-2.5">
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-blue-400">
-                <path
-                  d="M1.5 6.5h10M6.5 1.5v10"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-                <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-              <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
-                Cross-repo Impact
-              </span>
-            </div>
-            <ul className="space-y-1">
-              {testSet.crossImpacts.map((c, i) => (
-                <li key={i} className="text-sm text-blue-300/80 flex items-start gap-2">
-                  <span className="text-blue-600 mt-1">·</span>
-                  {c}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <TestSetInsights testSet={testSet} />
 
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
@@ -573,13 +478,16 @@ export default function TestSetPage() {
                   metadata={runById.get(test.analysisRunId ?? '')?.label}
                   onStatusChange={(status) => updateTestStatus(test, status)}
                   onDelete={() => deleteTest(test.id)}
+                  onNoteChange={(note) => updateTestNote(test.id, note)}
+                  onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
+                  onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
                 />
               ))}
             </div>
           ) : viewMode === 'update' ? (
             <div className="space-y-5">
               {(testSet.analysisRuns ?? []).map((run) => {
-                const runTests = sortByPriority(
+                const runTests = sortTestsByPriority(
                   tests.filter((test) => test.analysisRunId === run.id)
                 )
                 const branchCount = Object.keys(run.commitRanges).length
@@ -617,6 +525,9 @@ export default function TestSetPage() {
                             test={test}
                             onStatusChange={(status) => updateTestStatus(test, status)}
                             onDelete={() => deleteTest(test.id)}
+                            onNoteChange={(note) => updateTestNote(test.id, note)}
+                            onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
+                            onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
                           />
                         ))}
                       </div>
@@ -657,6 +568,9 @@ export default function TestSetPage() {
                           metadata={runById.get(test.analysisRunId ?? '')?.label}
                           onStatusChange={(status) => updateTestStatus(test, status)}
                           onDelete={() => deleteTest(test.id)}
+                          onNoteChange={(note) => updateTestNote(test.id, note)}
+                          onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
+                          onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
                         />
                       ))}
                     </div>
@@ -714,31 +628,4 @@ export default function TestSetPage() {
       )}
     </div>
   )
-}
-
-function groupTestsByArea(tests: Test[]) {
-  const groups = new Map<string, {key: string; label: string; isFallback: boolean; tests: Test[]}>()
-
-  for (const test of tests) {
-    const area = test.area?.trim()
-    const key = area ? area.toLocaleLowerCase() : '__other__'
-    const existing = groups.get(key)
-
-    if (existing) {
-      existing.tests.push(test)
-      continue
-    }
-
-    groups.set(key, {
-      key,
-      label: area || 'Other',
-      isFallback: !area,
-      tests: [test],
-    })
-  }
-
-  return [...groups.values()].sort((a, b) => {
-    if (a.isFallback !== b.isFallback) return a.isFallback ? 1 : -1
-    return a.label.localeCompare(b.label)
-  })
 }

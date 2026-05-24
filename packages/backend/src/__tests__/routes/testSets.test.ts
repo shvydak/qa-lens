@@ -284,6 +284,24 @@ describe('GET /api/projects/:projectId/test-sets', () => {
 })
 
 describe('GET /api/test-sets/:id', () => {
+  it('includes attachments array on each test', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+    testDb
+      .prepare(
+        `INSERT INTO tests (id, test_set_id, description, priority, status, source, sort_order)
+         VALUES (?, ?, 'A test', 'medium', 'not_tested', 'manual', 0)`
+      )
+      .run('t-attach', tsId)
+
+    const res = await request(app).get(`/api/test-sets/${tsId}`)
+
+    expect(res.status).toBe(200)
+    const t = res.body.data.tests.find((x: {id: string}) => x.id === 't-attach')
+    expect(t.attachments).toEqual([])
+    expect(t.note).toBeNull()
+  })
+
   it('returns analysis runs and test analysis metadata', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1'})

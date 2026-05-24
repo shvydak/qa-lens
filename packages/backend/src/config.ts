@@ -13,6 +13,7 @@ export const config = {
     ','
   ) as AIProvider[],
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+  uploadsPath: process.env.UPLOADS_PATH || join(__dirname, '../../uploads'),
   gitFetchIntervalMs: 60_000,
   maxDiffBytes: 80_000,
 }

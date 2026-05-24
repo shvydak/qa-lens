@@ -16,7 +16,8 @@ import {settingsRouter} from './routes/settings.js'
 const app = express()
 
 app.use(cors({origin: config.clientOrigin}))
-app.use(express.json())
+app.use(express.json({limit: '10mb'}))
+app.use('/uploads', express.static(config.uploadsPath))
 
 app.use('/api/projects', projectsRouter)
 app.use('/api/projects/:projectId/repos', reposRouter)
@@ -33,6 +34,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err)
   res.status(500).json({error: err.message || 'Internal server error'})
 })
+
+await mkdir(config.uploadsPath, {recursive: true})
 
 if (process.env.AI_DEBUG_DUMP) {
   const aiDebugDir = path.resolve(process.cwd(), '.ai-debug')

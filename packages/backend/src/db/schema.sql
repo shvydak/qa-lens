@@ -102,8 +102,18 @@ CREATE TABLE IF NOT EXISTS tests (
   repository_branch_id TEXT REFERENCES repository_branches(id) ON DELETE SET NULL,
   status      TEXT NOT NULL DEFAULT 'not_tested' CHECK(status IN ('not_tested','pass','fail','skip')),
   source      TEXT NOT NULL DEFAULT 'ai' CHECK(source IN ('ai','manual')),
-  sort_order  INTEGER NOT NULL DEFAULT 0
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  note        TEXT
 );
+
+CREATE TABLE IF NOT EXISTS test_attachments (
+  id          TEXT PRIMARY KEY,
+  test_id     TEXT NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+  filename    TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_attachments_test ON test_attachments(test_id);
 
 CREATE INDEX IF NOT EXISTS idx_repos_project ON repositories(project_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_project ON github_credentials(project_id);

@@ -1,5 +1,6 @@
 import {Router} from 'express'
 import {getDb} from '../db/index.js'
+import {testToDto, attachmentToDto} from '../db/mappers.js'
 import {closeTestSetReview, deleteTestSet} from '../services/AnalysisService.js'
 
 export const testSetsRouter = Router({mergeParams: true})
@@ -55,7 +56,29 @@ testSetActionsRouter.get('/:testSetId', (req, res) => {
     .prepare('SELECT * FROM analysis_runs WHERE test_set_id = ? ORDER BY created_at, rowid')
     .all(req.params.testSetId)
 
-  const testsDto = tests.map(testToDto)
+  const allAttachments = db
+    .prepare(
+      `SELECT ta.* FROM test_attachments ta
+       INNER JOIN tests t ON t.id = ta.test_id
+       WHERE t.test_set_id = ?
+       ORDER BY ta.created_at`
+    )
+    .all(req.params.testSetId) as Array<Record<string, unknown>>
+
+  const attachmentsByTestId = new Map<string, typeof allAttachments>()
+  for (const att of allAttachments) {
+    const tid = att.test_id as string
+    if (!attachmentsByTestId.has(tid)) attachmentsByTestId.set(tid, [])
+    attachmentsByTestId.get(tid)!.push(att)
+  }
+
+  const testsDto = tests.map((t) => {
+    const row = t as Record<string, unknown>
+    return {
+      ...testToDto(t),
+      attachments: (attachmentsByTestId.get(row.id as string) ?? []).map(attachmentToDto),
+    }
+  })
   const checklistCounts = tallyChecklistFromTests(testsDto)
   return res.json({
     data: {
@@ -266,29 +289,6 @@ function getCommitTargets(commitRanges: Record<string, {from: string | null; to:
   })
 }
 
-function testToDto(row: unknown) {
-  const r = row as Record<string, unknown>
-  return {
-    id: r.id,
-    testSetId: r.test_set_id,
-    description: r.description,
-    title: r.title ?? null,
-    priority: r.priority,
-    area: r.area ?? null,
-    userScenario: r.user_scenario ?? null,
-    preconditions: parseStringArray(r.preconditions),
-    steps: parseStringArray(r.steps),
-    expectedResult: r.expected_result ?? null,
-    risk: r.risk ?? null,
-    technicalContext: r.technical_context ?? null,
-    analysisRunId: r.analysis_run_id ?? null,
-    repositoryBranchId: r.repository_branch_id ?? null,
-    status: r.status,
-    source: r.source,
-    sortOrder: r.sort_order,
-  }
-}
-
 function runToDto(row: unknown) {
   const r = row as Record<string, unknown>
   return {
@@ -299,15 +299,5 @@ function runToDto(row: unknown) {
       typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges,
     aiSummary: r.ai_summary ?? null,
     createdAt: r.created_at,
-  }
-}
-
-function parseStringArray(value: unknown): string[] {
-  if (typeof value !== 'string') return []
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
-  } catch {
-    return []
   }
 }

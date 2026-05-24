@@ -1,4 +1,6 @@
-import type {Test} from '../../types/index.ts'
+import {useState, useEffect, useRef} from 'react'
+import type {Test, TestAttachment} from '../../types/index.ts'
+import {API_BASE} from '../../api/client.ts'
 
 const STATUS_CYCLE: Record<Test['status'], Test['status']> = {
   not_tested: 'pass',
@@ -80,17 +82,121 @@ const STATUS_CARD: Record<Test['status'], string> = {
   skip: 'border-gray-700/40 bg-gray-900/50 hover:border-gray-600/55 hover:bg-gray-900/65',
 }
 
+const NOTE_MAX = 500
+
 export default function TestItem({
   test,
   onStatusChange,
   onDelete,
+  onNoteChange,
+  onAttachmentUpload,
+  onAttachmentDelete,
   metadata,
 }: {
   test: Test
   onStatusChange: (status: Test['status']) => void
   onDelete: () => void
+  onNoteChange: (note: string | null) => Promise<void>
+  onAttachmentUpload: (file: File) => Promise<void>
+  onAttachmentDelete: (attachmentId: string) => Promise<void>
   metadata?: string
 }) {
+  const [isEditingNote, setIsEditingNote] = useState(false)
+  const [draftNote, setDraftNote] = useState(test.note ?? '')
+  const [savingNote, setSavingNote] = useState(false)
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const [noteError, setNoteError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!isEditingNote) setDraftNote(test.note ?? '')
+  }, [test.note, isEditingNote])
+
+  const handleSaveNote = async () => {
+    setSavingNote(true)
+    setNoteError(null)
+    try {
+      await onNoteChange(draftNote.trim() || null)
+      setIsEditingNote(false)
+    } catch {
+      setNoteError('Failed to save note')
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  const handleCancelNote = () => {
+    setDraftNote(test.note ?? '')
+    setNoteError(null)
+    setIsEditingNote(false)
+  }
+
+  const uploadFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setNoteError('Only image files are supported')
+      return
+    }
+    setUploadingCount((n) => n + 1)
+    setNoteError(null)
+    try {
+      await onAttachmentUpload(file)
+    } catch {
+      setNoteError('Failed to upload image')
+    } finally {
+      setUploadingCount((n) => n - 1)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    for (const file of Array.from(e.target.files ?? [])) {
+      await uploadFile(file)
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageItem = Array.from(e.clipboardData.items).find((item) =>
+      item.type.startsWith('image/')
+    )
+    if (!imageItem) return
+    e.preventDefault()
+    const file = imageItem.getAsFile()
+    if (file) uploadFile(file)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault()
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = () => setIsDragging(false)
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    for (const file of Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith('image/')
+    )) {
+      await uploadFile(file)
+    }
+  }
+
+  const handleDeleteAttachment = async (att: TestAttachment) => {
+    try {
+      await onAttachmentDelete(att.id)
+    } catch {
+      setNoteError('Failed to remove image')
+    }
+  }
+
+  const attachmentUrl = (att: TestAttachment) => `${API_BASE}/uploads/${att.filename}`
+  const isUploading = uploadingCount > 0
+  const charsLeft = NOTE_MAX - draftNote.length
+  const nearLimit = charsLeft < 100
+
   const title = test.title || test.description
   const hasStructuredDetails =
     Boolean(test.userScenario) ||
@@ -203,6 +309,196 @@ export default function TestItem({
               {test.description}
             </p>
           )
+        )}
+
+        {/* Note + screenshot section */}
+        {isEditingNote ? (
+          <div className="mt-3 space-y-2">
+            {/* Drop zone wrapping textarea */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative rounded-lg border transition-colors ${
+                isDragging
+                  ? 'border-indigo-500/60 bg-indigo-500/5'
+                  : 'border-gray-700/50 bg-gray-800'
+              }`}>
+              <textarea
+                value={draftNote}
+                onChange={(e) => setDraftNote(e.target.value)}
+                onPaste={handlePaste}
+                placeholder="Add a note... paste or drop screenshots here"
+                maxLength={NOTE_MAX}
+                rows={3}
+                autoFocus
+                className="w-full resize-none bg-transparent px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none"
+              />
+              {isDragging && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg">
+                  <span className="text-xs font-medium text-indigo-400">Drop images to attach</span>
+                </div>
+              )}
+              {isUploading && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-gray-800/60">
+                  <span className="text-xs text-gray-400">Uploading...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Attachment thumbnails */}
+            {test.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {test.attachments.map((att) => (
+                  <div key={att.id} className="group/att relative">
+                    <a href={attachmentUrl(att)} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={attachmentUrl(att)}
+                        alt="Attachment"
+                        className="h-14 w-auto rounded border border-gray-700/50 object-cover hover:border-gray-500/50 transition-colors"
+                      />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAttachment(att)}
+                      title="Remove"
+                      className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border border-gray-600 bg-gray-900 text-[10px] text-gray-400 hover:border-red-500/50 hover:text-red-400 group-hover/att:flex transition-colors">
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload row */}
+            <label className="flex w-fit cursor-pointer items-center gap-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors">
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <rect
+                  x="1"
+                  y="2.5"
+                  width="9"
+                  height="7"
+                  rx="1"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                />
+                <circle cx="5.5" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+                <path
+                  d="M3.5 2.5V2a1 1 0 011-1h2a1 1 0 011 1v.5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                />
+              </svg>
+              {isUploading
+                ? 'Uploading...'
+                : test.attachments.length > 0
+                  ? 'Add more'
+                  : 'Attach screenshot'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={isUploading}
+              />
+            </label>
+
+            {/* Actions row */}
+            <div className="flex items-center justify-between gap-2">
+              {noteError ? (
+                <span className="text-xs text-red-400">{noteError}</span>
+              ) : nearLimit ? (
+                <span
+                  className={`text-[11px] tabular-nums ${charsLeft < 20 ? 'text-red-400' : 'text-amber-500/70'}`}>
+                  {charsLeft} chars left
+                </span>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleCancelNote}
+                  disabled={savingNote}
+                  className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveNote}
+                  disabled={savingNote}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium transition-colors">
+                  {savingNote ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : test.note || test.attachments.length > 0 ? (
+          /* Display mode: has note or attachments */
+          <div
+            className="group/note mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-gray-800/60 bg-gray-900/40 px-3 py-2 hover:border-gray-700/60 hover:bg-gray-900/60 transition-colors"
+            onClick={() => setIsEditingNote(true)}>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              className="mt-0.5 flex-shrink-0 text-gray-700">
+              <path
+                d="M6.5 1.5L8.5 3.5L3 9H1V7L6.5 1.5Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              {test.note && (
+                <p className="text-xs leading-relaxed text-gray-500 group-hover/note:text-gray-400 whitespace-pre-wrap transition-colors">
+                  {test.note}
+                </p>
+              )}
+              {test.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {test.attachments.map((att) => (
+                    <a
+                      key={att.id}
+                      href={attachmentUrl(att)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}>
+                      <img
+                        src={attachmentUrl(att)}
+                        alt="Attachment"
+                        className="h-10 w-auto rounded border border-gray-700/50 object-cover hover:border-gray-500/50 transition-colors"
+                      />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Empty trigger — shown on hover, red-tinted for failed tests */
+          <button
+            type="button"
+            onClick={() => setIsEditingNote(true)}
+            className={`mt-2 flex items-center gap-1 text-xs opacity-0 group-hover:opacity-100 transition-all ${
+              test.status === 'fail'
+                ? 'text-red-400/50 hover:text-red-400/80'
+                : 'text-gray-700 hover:text-gray-500'
+            }`}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+              <path
+                d="M5.5 1.5L7.5 3.5L2 9H0V7L5.5 1.5Z"
+                stroke="currentColor"
+                strokeWidth="1.1"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Add note
+          </button>
         )}
       </div>
 

@@ -126,6 +126,13 @@ export interface TestSetCommitTarget {
   to: string
 }
 
+export interface TestAttachment {
+  id: string
+  testId: string
+  filename: string
+  createdAt: string
+}
+
 export interface Test {
   id: string
   testSetId: string
@@ -144,6 +151,8 @@ export interface Test {
   status: 'not_tested' | 'pass' | 'fail' | 'skip'
   source: 'ai' | 'manual'
   sortOrder: number
+  note: string | null
+  attachments: TestAttachment[]
 }
 
 export interface AnalysisStatus {

@@ -4,6 +4,13 @@ import * as GitService from './GitService.js'
 import * as AIService from './AIService.js'
 import type {AIAnalysisOutput, AnalysisJob, Repository, RepositoryBranch} from '../types/index.js'
 import {ulid} from '../utils/ulid.js'
+import {parseStringArray} from '../utils/json.js'
+import {
+  appendSummary,
+  buildTestSetName,
+  mergeStringArrays,
+  normalizeResolutionNote,
+} from './analysis/helpers.js'
 
 export class NoNewCommitsError extends Error {
   constructor() {
@@ -152,12 +159,11 @@ async function _run(job: AnalysisJob): Promise<AnalysisResult> {
     repos: diffs,
   })
 
-  const allCommitHashes = diffs.flatMap((d) => d.commits.map((c) => c.shortHash))
   const dateStr = new Date().toISOString().slice(0, 10)
-  const name =
-    allCommitHashes.length > 0
-      ? `${allCommitHashes[allCommitHashes.length - 1]}..${allCommitHashes[0]} · ${dateStr}`
-      : `Analysis · ${dateStr}`
+  const name = buildTestSetName(
+    diffs.flatMap((d) => d.commits),
+    dateStr
+  )
 
   const testSetId = ulid()
   const analysisRunId = ulid()
@@ -370,27 +376,6 @@ function getOrCreateAnalysisContext(
   return {id, branchSignature}
 }
 
-function appendSummary(current: string | null, next: string): string {
-  if (!current?.trim()) return next
-  if (!next.trim()) return current
-  const date = new Date().toISOString().slice(0, 10)
-  return `${current}\n\nUpdate ${date}: ${next}`
-}
-
-function parseStringArray(value: string | null): string[] {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
-  } catch {
-    return []
-  }
-}
-
-function mergeStringArrays(a: string[], b: string[]): string[] {
-  return [...new Set([...a, ...b].map((item) => item.trim()).filter(Boolean))]
-}
-
 export type TestSetResolutionStatus = 'passed' | 'failed' | 'reviewed' | 'not_required'
 
 export function closeTestSetReview(
@@ -550,11 +535,6 @@ function recomputeProjectAnalysisCursor(db: ReturnType<typeof getDb>, projectId:
     updateBranch.run(latestAnalyzedHashByBranch.get(branch.id) ?? null, branch.id)
   }
   updateRepo.run(projectId)
-}
-
-function normalizeResolutionNote(value: string | undefined): string | null {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : null
 }
 
 function getActiveBranch(repo: Repository): RepositoryBranch | null {
