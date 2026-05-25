@@ -75,6 +75,7 @@ export interface TestSetCommitTarget {
   id: string
   repositoryId: string
   repositoryPath: string
+  repositoryName: string
   branchName: string
   from: string | null
   to: string

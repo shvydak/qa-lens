@@ -302,6 +302,56 @@ describe('GET /api/test-sets/:id', () => {
     expect(t.note).toBeNull()
   })
 
+  it('includes commitTargets with repositoryName derived from github_url', async () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {
+      id: 'repo-gh',
+      localPath: '/managed/acme-backend-01ABCDEFGHJKMNPQRSTVWXYZ12',
+      githubUrl: 'https://github.com/acme/backend.git',
+      branch: 'main',
+    })
+    const branchId = `${repoId}-branch`
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {[branchId]: {from: 'abc', to: 'def'}},
+    })
+
+    const res = await request(app).get(`/api/test-sets/${testSetId}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.commitTargets).toEqual([
+      expect.objectContaining({
+        id: branchId,
+        branchName: 'main',
+        repositoryName: 'acme/backend',
+        from: 'abc',
+        to: 'def',
+      }),
+    ])
+  })
+
+  it('falls back to path basename (minus ULID) for repositoryName when no github_url', async () => {
+    const projectId = seedProject(testDb)
+    const repoId = seedRepo(testDb, projectId, {
+      id: 'repo-local',
+      localPath: '/managed/my-service-01ABCDEFGHJKMNPQRSTVWXYZ12',
+      branch: 'develop',
+    })
+    const branchId = `${repoId}-branch`
+    const testSetId = seedTestSet(testDb, projectId, {
+      commitRanges: {[branchId]: {from: null, to: 'head'}},
+    })
+
+    const res = await request(app).get(`/api/test-sets/${testSetId}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.commitTargets).toEqual([
+      expect.objectContaining({
+        repositoryName: 'my-service',
+        branchName: 'develop',
+      }),
+    ])
+  })
+
   it('returns analysis runs and test analysis metadata', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1'})

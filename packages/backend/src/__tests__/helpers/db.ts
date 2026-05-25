@@ -24,17 +24,19 @@ export function seedRepo(
   opts: {
     id?: string
     localPath?: string
+    githubUrl?: string | null
     branch?: string
     lastAnalyzedCommitHash?: string | null
   } = {}
 ): string {
   const id = opts.id ?? 'repo-1'
   db.prepare(
-    'INSERT INTO repositories (id, project_id, local_path, branch, last_analyzed_commit_hash) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO repositories (id, project_id, local_path, github_url, branch, last_analyzed_commit_hash) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(
     id,
     projectId,
     opts.localPath ?? '/fake/path',
+    opts.githubUrl ?? null,
     opts.branch ?? 'main',
     opts.lastAnalyzedCommitHash ?? null
   )

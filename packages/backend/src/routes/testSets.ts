@@ -2,6 +2,7 @@ import {Router} from 'express'
 import {getDb} from '../db/index.js'
 import {testToDto, attachmentToDto} from '../db/mappers.js'
 import {closeTestSetReview, deleteTestSet} from '../services/AnalysisService.js'
+import {repoDisplayName} from './testSets.helpers.js'
 
 export const testSetsRouter = Router({mergeParams: true})
 export const testSetActionsRouter = Router({mergeParams: true})
@@ -253,14 +254,21 @@ function getCommitTargets(commitRanges: Record<string, {from: string | null; to:
           rb.id,
           rb.repository_id,
           rb.name,
-          r.local_path
+          r.local_path,
+          r.github_url
         FROM repository_branches rb
         JOIN repositories r ON r.id = rb.repository_id
         WHERE rb.id = ?
       `
       )
       .get(targetId) as
-      | {id: string; repository_id: string; name: string; local_path: string}
+      | {
+          id: string
+          repository_id: string
+          name: string
+          local_path: string
+          github_url: string | null
+        }
       | undefined
 
     if (branch) {
@@ -268,6 +276,7 @@ function getCommitTargets(commitRanges: Record<string, {from: string | null; to:
         id: branch.id,
         repositoryId: branch.repository_id,
         repositoryPath: branch.local_path,
+        repositoryName: repoDisplayName(branch.local_path, branch.github_url),
         branchName: branch.name,
         from: range.from,
         to: range.to,
@@ -275,13 +284,14 @@ function getCommitTargets(commitRanges: Record<string, {from: string | null; to:
     }
 
     const repo = db.prepare('SELECT * FROM repositories WHERE id = ?').get(targetId) as
-      | {id: string; local_path: string; branch: string}
+      | {id: string; local_path: string; branch: string; github_url: string | null}
       | undefined
 
     return {
       id: targetId,
       repositoryId: repo?.id ?? targetId,
       repositoryPath: repo?.local_path ?? targetId,
+      repositoryName: repoDisplayName(repo?.local_path ?? targetId, repo?.github_url),
       branchName: repo?.branch ?? 'unknown',
       from: range.from,
       to: range.to,

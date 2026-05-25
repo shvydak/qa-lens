@@ -43,7 +43,7 @@ Test files: `packages/backend/src/__tests__/`
 **Helpers** (`src/__tests__/helpers/`):
 
 - `createTestDb()` — fresh in-memory DB with schema applied
-- `seedProject / seedRepo / seedTestSet` — fixture insertion
+- `seedProject / seedRepo / seedTestSet` — fixture insertion; `seedRepo` accepts `githubUrl` option for managed-clone / `repositoryName` scenarios
 - `createTestApp()` — Express app without server/polling, for supertest route tests
 
 **Pattern for mocking `getDb`** in service/route tests:
@@ -204,6 +204,8 @@ npm workspaces monorepo with two packages:
 **Sidebar navigation:** `AppShell` renders a persistent project list and test sets under the active project. Re-fetches both on `location.pathname` changes + `testSetVersion`. Sidebar test sets show a segmented progress bar reusing the `ChecklistCounts` color scheme.
 
 **Sidebar width coupling:** sidebar is `w-56`; `TestSetPage`'s fixed bottom bar uses `left-56` to match. If sidebar width changes, update both.
+
+**Sticky bar with expandable content:** use `flex gap-4` (not `justify-between`) + `flex-1 min-w-0` on the growing side + `flex-shrink-0 flex-nowrap` on the fixed side to prevent overlap. Give any pill that switches between content states (e.g. collapsed "Search" vs expanded input) a fixed `h-8` instead of `py-*` padding to prevent height jumps. When the pill itself must expand, add `flex-1 min-w-0` to the pill and `flex-1 min-w-0` to the input inside — never a fixed `w-*` on the input.
 
 **Breadcrumbs:** pages use inline `<nav>` breadcrumbs instead of back buttons. `TestSetPage` fetches parent project name separately (via `GET /api/projects/:projectId`) for display in the breadcrumb.
 

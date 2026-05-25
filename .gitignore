@@ -49,4 +49,4 @@ Thumbs.db
 
 # Editor (optional; remove if you want to share team settings)
 .idea/
-packages/uploads/*.png
+packages/uploads/

@@ -1,32 +1,25 @@
+import {useState} from 'react'
 import type {TestSet} from '../../types/index.ts'
 
-/**
- * Read-only summary panels for a test set: analyzed branch ranges, the AI
- * summary, possible regressions, and cross-repo impacts.
- */
 export default function TestSetInsights({testSet}: {testSet: TestSet}) {
+  const [aiExpanded, setAiExpanded] = useState(false)
+  const [regressionsOpen, setRegressionsOpen] = useState(false)
+  const [crossImpactsOpen, setCrossImpactsOpen] = useState(false)
+
   return (
     <>
       {testSet.commitTargets && testSet.commitTargets.length > 0 && (
-        <div className="mb-4 p-4 bg-gray-900 border border-gray-800/50 rounded-xl">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-            Analyzed branches
-          </div>
-          <div className="space-y-2">
-            {testSet.commitTargets.map((target) => (
-              <div
-                key={target.id}
-                className="flex items-center justify-between gap-3 text-xs bg-gray-950/40 border border-gray-800/60 rounded-lg px-3 py-2">
-                <div className="min-w-0">
-                  <div className="font-mono text-gray-300 truncate">{target.repositoryPath}</div>
-                  <div className="font-mono text-indigo-300 mt-0.5">{target.branchName}</div>
-                </div>
-                <div className="flex-shrink-0 font-mono text-gray-500">
-                  {(target.from ?? 'start').slice(0, 7)}..{target.to.slice(0, 7)}
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          {testSet.commitTargets.map((target) => (
+            <div
+              key={target.id}
+              title={`${target.repositoryPath}\n${(target.from ?? 'start').slice(0, 7)}..${target.to.slice(0, 7)}`}
+              className="inline-flex items-center gap-1.5 bg-gray-900 border border-gray-800/60 rounded-lg px-2.5 py-1 text-xs">
+              <span className="text-gray-400">{target.repositoryName}</span>
+              <span className="text-gray-700">/</span>
+              <span className="font-mono text-indigo-300">{target.branchName}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -45,14 +38,31 @@ export default function TestSetInsights({testSet}: {testSet: TestSet}) {
               AI Analysis
             </span>
           </div>
-          <p className="text-sm text-gray-300 leading-relaxed">{testSet.aiSummary}</p>
+          <p
+            className={`text-sm text-gray-300 leading-relaxed ${aiExpanded ? '' : 'line-clamp-3'}`}>
+            {testSet.aiSummary}
+          </p>
+          {testSet.aiSummary.length > 200 && (
+            <button
+              onClick={() => setAiExpanded((v) => !v)}
+              className="mt-1.5 text-xs text-indigo-400/70 hover:text-indigo-300 transition-colors">
+              {aiExpanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
         </div>
       )}
 
       {testSet.regressions?.length > 0 && (
-        <div className="mb-4 p-4 bg-amber-500/5 border border-amber-500/15 rounded-xl">
-          <div className="flex items-center gap-2 mb-2.5">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-amber-400">
+        <div className="mb-4 border border-amber-500/15 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setRegressionsOpen((v) => !v)}
+            className="w-full flex items-center gap-2 px-4 py-3 bg-amber-500/5 hover:bg-amber-500/10 transition-colors">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 13 13"
+              fill="none"
+              className="text-amber-400 flex-shrink-0">
               <path
                 d="M6.5 1.5L12 11.5H1L6.5 1.5z"
                 stroke="currentColor"
@@ -66,25 +76,49 @@ export default function TestSetInsights({testSet}: {testSet: TestSet}) {
                 strokeLinecap="round"
               />
             </svg>
-            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex-1 text-left">
               Possible Regressions
             </span>
-          </div>
-          <ul className="space-y-1">
-            {testSet.regressions.map((r, i) => (
-              <li key={i} className="text-sm text-amber-300/80 flex items-start gap-2">
-                <span className="text-amber-600 mt-1">·</span>
-                {r}
-              </li>
-            ))}
-          </ul>
+            <span className="text-xs text-amber-500/70 mr-1">{testSet.regressions.length}</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              className={`text-amber-500/50 transition-transform ${regressionsOpen ? 'rotate-180' : ''}`}>
+              <path
+                d="M2 4l4 4 4-4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          {regressionsOpen && (
+            <ul className="px-4 py-3 space-y-1.5 bg-amber-500/5">
+              {testSet.regressions.map((r, i) => (
+                <li key={i} className="text-sm text-amber-300/80 flex items-start gap-2">
+                  <span className="text-amber-600 mt-1 flex-shrink-0">·</span>
+                  {r}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       {testSet.crossImpacts?.length > 0 && (
-        <div className="mb-6 p-4 bg-blue-500/5 border border-blue-500/15 rounded-xl">
-          <div className="flex items-center gap-2 mb-2.5">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-blue-400">
+        <div className="mb-6 border border-blue-500/15 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setCrossImpactsOpen((v) => !v)}
+            className="w-full flex items-center gap-2 px-4 py-3 bg-blue-500/5 hover:bg-blue-500/10 transition-colors">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 13 13"
+              fill="none"
+              className="text-blue-400 flex-shrink-0">
               <path
                 d="M1.5 6.5h10M6.5 1.5v10"
                 stroke="currentColor"
@@ -93,18 +127,35 @@ export default function TestSetInsights({testSet}: {testSet: TestSet}) {
               />
               <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" strokeWidth="1.2" />
             </svg>
-            <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex-1 text-left">
               Cross-repo Impact
             </span>
-          </div>
-          <ul className="space-y-1">
-            {testSet.crossImpacts.map((c, i) => (
-              <li key={i} className="text-sm text-blue-300/80 flex items-start gap-2">
-                <span className="text-blue-600 mt-1">·</span>
-                {c}
-              </li>
-            ))}
-          </ul>
+            <span className="text-xs text-blue-500/70 mr-1">{testSet.crossImpacts.length}</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              className={`text-blue-500/50 transition-transform ${crossImpactsOpen ? 'rotate-180' : ''}`}>
+              <path
+                d="M2 4l4 4 4-4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          {crossImpactsOpen && (
+            <ul className="px-4 py-3 space-y-1.5 bg-blue-500/5">
+              {testSet.crossImpacts.map((c, i) => (
+                <li key={i} className="text-sm text-blue-300/80 flex items-start gap-2">
+                  <span className="text-blue-600 mt-1 flex-shrink-0">·</span>
+                  {c}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </>

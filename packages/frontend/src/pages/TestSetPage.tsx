@@ -35,11 +35,14 @@ export default function TestSetPage() {
   const [marking, setMarking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('priority')
-  const [hiddenStatuses, setHiddenStatuses] = useState<Test['status'][]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<Test['status'][]>([])
   const [areaFilterOpen, setAreaFilterOpen] = useState(false)
   const [hiddenAreaKeys, setHiddenAreaKeys] = useState<string[]>([])
   const [draftHiddenAreaKeys, setDraftHiddenAreaKeys] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
   const areaFilterRef = useRef<HTMLDivElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -54,6 +57,21 @@ export default function TestSetPage() {
       })
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target === searchInputRef.current) return
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        return
+      if (e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   useEffect(() => {
     if (!areaFilterOpen) return
@@ -180,13 +198,21 @@ export default function TestSetPage() {
       : 'No tests'
 
   const toggleStatus = (status: Test['status']) => {
-    setHiddenStatuses((prev) =>
-      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
-    )
+    setSelectedStatuses((prev) => {
+      const next = prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
+      const distinctStatuses = new Set(tests.map((t) => t.status))
+      return [...distinctStatuses].every((s) => next.includes(s)) ? [] : next
+    })
   }
 
-  const visibleTests =
-    hiddenStatuses.length === 0 ? tests : tests.filter((t) => !hiddenStatuses.includes(t.status))
+  const q = searchQuery.trim().toLowerCase()
+  const visibleTests = tests.filter(
+    (t) =>
+      (selectedStatuses.length === 0 || selectedStatuses.includes(t.status)) &&
+      (q === '' ||
+        t.description.toLowerCase().includes(q) ||
+        (t.area ?? '').toLowerCase().includes(q))
+  )
 
   const passCount = tests.filter((t) => t.status === 'pass').length
   const skipCount = tests.filter((t) => t.status === 'skip').length
@@ -198,7 +224,15 @@ export default function TestSetPage() {
     .filter((group) => !hiddenAreaKeys.includes(group.key))
     .map((group) => ({
       ...group,
-      tests: sortTestsByPriority(group.tests.filter((t) => !hiddenStatuses.includes(t.status))),
+      tests: sortTestsByPriority(
+        group.tests.filter(
+          (t) =>
+            (selectedStatuses.length === 0 || selectedStatuses.includes(t.status)) &&
+            (q === '' ||
+              t.description.toLowerCase().includes(q) ||
+              (t.area ?? '').toLowerCase().includes(q))
+        )
+      ),
     }))
     .filter((group) => group.tests.length > 0)
   const hiddenAreaCount = hiddenAreaKeys.filter((key) =>
@@ -279,11 +313,8 @@ export default function TestSetPage() {
                 })}
               </span>
             </div>
-            <h1 className="text-lg font-mono font-medium text-gray-200 leading-snug">
-              {isEmptyReview ? 'No relevant tests for this analysis' : testSet.name}
-            </h1>
             {isEmptyReview && (
-              <p className="mt-1 font-mono text-xs text-gray-600">{testSet.name}</p>
+              <p className="text-sm text-gray-400">No relevant tests for this analysis</p>
             )}
             {testSet.resolutionNote && (
               <p className="mt-2 text-sm text-gray-500">Resolution: {testSet.resolutionNote}</p>
@@ -340,186 +371,269 @@ export default function TestSetPage() {
         <TestSetInsights testSet={testSet} />
 
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-              Test Cases
-            </h2>
-            <div className="flex items-center gap-3 text-xs">
-              {totalTests > 0 && (
-                <>
-                  <button
-                    onClick={() => {
-                      if (areaFilterOpen) setHiddenAreaKeys(draftHiddenAreaKeys)
-                      setViewMode('priority')
-                      setAreaFilterOpen(false)
+          <div className="sticky top-[51px] z-20 flex items-center gap-4 py-3 mb-1 bg-gray-950 border-b border-gray-800/60">
+            <>
+              <div className="flex flex-1 items-center gap-3 min-w-0">
+                <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex-shrink-0">
+                  Test Cases
+                </h2>
+                <div
+                  onClick={() => searchInputRef.current?.focus()}
+                  className={`h-8 flex items-center gap-2 rounded-lg px-3 text-sm border transition-colors cursor-text ${
+                    searchQuery || searchFocused
+                      ? 'bg-gray-900 border-indigo-500/30 flex-1 min-w-0'
+                      : 'bg-gray-900 border-gray-800/60 hover:border-gray-700'
+                  }`}>
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    className={`flex-shrink-0 ${searchQuery || searchFocused ? 'text-indigo-400' : 'text-gray-500'}`}>
+                    <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+                    <path
+                      d="M9.5 9.5L12.5 12.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  {!searchFocused && !searchQuery && (
+                    <span className="text-gray-500 select-none">Search</span>
+                  )}
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setSearchQuery('')
+                        searchInputRef.current?.blur()
+                      }
                     }}
-                    className={`px-2 py-1 rounded ${
-                      viewMode === 'priority' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
-                    }`}>
-                    By priority
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (areaFilterOpen) setHiddenAreaKeys(draftHiddenAreaKeys)
-                      setViewMode('update')
-                      setAreaFilterOpen(false)
-                    }}
-                    className={`px-2 py-1 rounded ${
-                      viewMode === 'update' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
-                    }`}>
-                    By update
-                  </button>
-                  <div ref={areaFilterRef} className="relative">
+                    placeholder="Search..."
+                    className={`bg-transparent outline-none placeholder-gray-600 text-gray-300 transition-all min-w-0 ${searchQuery || searchFocused ? 'flex-1' : 'w-0 flex-none'}`}
+                  />
+                  {searchQuery ? (
+                    <>
+                      <span className="text-gray-500 flex-shrink-0">{visibleTests.length}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('')
+                          searchInputRef.current?.focus()
+                        }}
+                        className="text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0 leading-none">
+                        ×
+                      </button>
+                    </>
+                  ) : (
+                    !searchFocused && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <kbd className="rounded border border-gray-700 bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400">
+                          ⌘
+                        </kbd>
+                        <kbd className="rounded border border-gray-700 bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400">
+                          K
+                        </kbd>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-sm flex-shrink-0 flex-nowrap">
+                {totalTests > 0 && (
+                  <>
                     <button
-                      type="button"
                       onClick={() => {
-                        setViewMode('area')
-                        if (viewMode === 'area' && areaFilterOpen) {
-                          setHiddenAreaKeys(draftHiddenAreaKeys)
-                          setAreaFilterOpen(false)
-                        } else {
-                          setDraftHiddenAreaKeys(hiddenAreaKeys)
-                          setAreaFilterOpen(true)
-                        }
+                        if (areaFilterOpen) setHiddenAreaKeys(draftHiddenAreaKeys)
+                        setViewMode('priority')
+                        setAreaFilterOpen(false)
                       }}
                       className={`px-2 py-1 rounded ${
-                        viewMode === 'area' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                        viewMode === 'priority'
+                          ? 'bg-indigo-500/15 text-indigo-300'
+                          : 'text-gray-600'
                       }`}>
-                      By area
-                      {displayHiddenAreaCount > 0 && (
-                        <span className="ml-1 text-indigo-300/70">
-                          {visibleAreaCount}/{allAreaGroups.length}
-                        </span>
-                      )}
+                      By priority
                     </button>
-                    {areaFilterOpen && viewMode === 'area' && (
-                      <div className="absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-xl border border-gray-700/70 bg-gray-950 shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-gray-800/70 px-3 py-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                            Areas
+                    <button
+                      onClick={() => {
+                        if (areaFilterOpen) setHiddenAreaKeys(draftHiddenAreaKeys)
+                        setViewMode('update')
+                        setAreaFilterOpen(false)
+                      }}
+                      className={`px-2 py-1 rounded ${
+                        viewMode === 'update' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                      }`}>
+                      By update
+                    </button>
+                    <div ref={areaFilterRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewMode('area')
+                          if (viewMode === 'area' && areaFilterOpen) {
+                            setHiddenAreaKeys(draftHiddenAreaKeys)
+                            setAreaFilterOpen(false)
+                          } else {
+                            setDraftHiddenAreaKeys(hiddenAreaKeys)
+                            setAreaFilterOpen(true)
+                          }
+                        }}
+                        className={`px-2 py-1 rounded ${
+                          viewMode === 'area' ? 'bg-indigo-500/15 text-indigo-300' : 'text-gray-600'
+                        }`}>
+                        By area
+                        {displayHiddenAreaCount > 0 && (
+                          <span className="ml-1 text-indigo-300/70">
+                            {visibleAreaCount}/{allAreaGroups.length}
                           </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={showAllAreas}
-                              disabled={draftHiddenAreaCount === 0}
-                              className={`text-[11px] transition-colors ${
-                                draftHiddenAreaCount === 0
-                                  ? 'cursor-not-allowed text-gray-700'
-                                  : 'text-indigo-300/80 hover:text-indigo-200'
-                              }`}>
-                              Show all
-                            </button>
-                            <span className="text-gray-800">/</span>
-                            <button
-                              type="button"
-                              onClick={hideAllAreas}
-                              disabled={allAreaGroups.length === draftHiddenAreaCount}
-                              className={`text-[11px] transition-colors ${
-                                allAreaGroups.length === draftHiddenAreaCount
-                                  ? 'cursor-not-allowed text-gray-700'
-                                  : 'text-gray-500 hover:text-gray-300'
-                              }`}>
-                              Hide all
-                            </button>
+                        )}
+                      </button>
+                      {areaFilterOpen && viewMode === 'area' && (
+                        <div className="absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-xl border border-gray-700/70 bg-gray-950 shadow-2xl">
+                          <div className="flex items-center justify-between border-b border-gray-800/70 px-3 py-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                              Areas
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={showAllAreas}
+                                disabled={draftHiddenAreaCount === 0}
+                                className={`text-[11px] transition-colors ${
+                                  draftHiddenAreaCount === 0
+                                    ? 'cursor-not-allowed text-gray-700'
+                                    : 'text-indigo-300/80 hover:text-indigo-200'
+                                }`}>
+                                Show all
+                              </button>
+                              <span className="text-gray-800">/</span>
+                              <button
+                                type="button"
+                                onClick={hideAllAreas}
+                                disabled={allAreaGroups.length === draftHiddenAreaCount}
+                                className={`text-[11px] transition-colors ${
+                                  allAreaGroups.length === draftHiddenAreaCount
+                                    ? 'cursor-not-allowed text-gray-700'
+                                    : 'text-gray-500 hover:text-gray-300'
+                                }`}>
+                                Hide all
+                              </button>
+                            </div>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto p-1.5">
+                            {allAreaGroups.map((group) => {
+                              const visible = !draftHiddenAreaKeys.includes(group.key)
+                              return (
+                                <button
+                                  key={group.key}
+                                  type="button"
+                                  onClick={() => toggleAreaFilter(group.key)}
+                                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-gray-900">
+                                  <span
+                                    className={`flex h-4 w-4 items-center justify-center rounded border ${
+                                      visible
+                                        ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
+                                        : 'border-gray-700 bg-gray-900 text-transparent'
+                                    }`}>
+                                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                      <path
+                                        d="M1.5 5l2.2 2.2L8.5 2.5"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  </span>
+                                  <span
+                                    className={`inline-flex min-w-0 max-w-[8.5rem] items-center truncate rounded border px-1.5 py-0.5 text-xs font-medium ${
+                                      group.isFallback
+                                        ? 'border-gray-700/70 bg-gray-800/50 text-gray-400'
+                                        : getAreaBadgeStyle(group.label)
+                                    }`}>
+                                    {group.label}
+                                  </span>
+                                  <span className="ml-auto text-[11px] text-gray-600">
+                                    {group.tests.length}
+                                  </span>
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
-                        <div className="max-h-64 overflow-y-auto p-1.5">
-                          {allAreaGroups.map((group) => {
-                            const visible = !draftHiddenAreaKeys.includes(group.key)
-                            return (
-                              <button
-                                key={group.key}
-                                type="button"
-                                onClick={() => toggleAreaFilter(group.key)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-gray-900">
-                                <span
-                                  className={`flex h-4 w-4 items-center justify-center rounded border ${
-                                    visible
-                                      ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
-                                      : 'border-gray-700 bg-gray-900 text-transparent'
-                                  }`}>
-                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                    <path
-                                      d="M1.5 5l2.2 2.2L8.5 2.5"
-                                      stroke="currentColor"
-                                      strokeWidth="1.5"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                </span>
-                                <span
-                                  className={`inline-flex min-w-0 max-w-[8.5rem] items-center truncate rounded border px-1.5 py-0.5 text-xs font-medium ${
-                                    group.isFallback
-                                      ? 'border-gray-700/70 bg-gray-800/50 text-gray-400'
-                                      : getAreaBadgeStyle(group.label)
-                                  }`}>
-                                  {group.label}
-                                </span>
-                                <span className="ml-auto text-[11px] text-gray-600">
-                                  {group.tests.length}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {(
-                    [
-                      {
-                        status: 'pass',
-                        label: 'pass',
-                        count: passCount,
-                        on: 'text-emerald-500 hover:text-emerald-400',
-                        off: 'text-gray-700 line-through hover:text-gray-600',
-                      },
-                      {
-                        status: 'fail',
-                        label: 'fail',
-                        count: failedTests,
-                        on: 'text-red-400 hover:text-red-300',
-                        off: 'text-gray-700 line-through hover:text-gray-600',
-                      },
-                      {
-                        status: 'not_tested',
-                        label: 'pending',
-                        count: tests.filter((t) => t.status === 'not_tested').length,
-                        on: 'text-gray-500 hover:text-gray-400',
-                        off: 'text-gray-700 line-through hover:text-gray-600',
-                      },
-                      ...(skipCount > 0
-                        ? [
-                            {
-                              status: 'skip',
-                              label: 'skip',
-                              count: skipCount,
-                              on: 'text-gray-600 hover:text-gray-500',
-                              off: 'text-gray-700 line-through hover:text-gray-600',
-                            },
-                          ]
-                        : []),
-                    ] as {
-                      status: Test['status']
-                      label: string
-                      count: number
-                      on: string
-                      off: string
-                    }[]
-                  ).map(({status, label, count, on, off}) => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => toggleStatus(status)}
-                      className={`px-2 py-1 rounded transition-colors ${hiddenStatuses.includes(status) ? off : on}`}>
-                      {count} {label}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
+                      )}
+                    </div>
+                    {(
+                      [
+                        {
+                          status: 'pass',
+                          label: 'pass',
+                          count: passCount,
+                          idle: 'text-emerald-500 hover:text-emerald-400',
+                          active: 'bg-emerald-500/15 text-emerald-400',
+                          inactive: 'text-gray-600 hover:text-gray-400',
+                        },
+                        {
+                          status: 'fail',
+                          label: 'fail',
+                          count: failedTests,
+                          idle: 'text-red-400 hover:text-red-300',
+                          active: 'bg-red-500/15 text-red-400',
+                          inactive: 'text-gray-600 hover:text-gray-400',
+                        },
+                        {
+                          status: 'not_tested',
+                          label: 'pending',
+                          count: tests.filter((t) => t.status === 'not_tested').length,
+                          idle: 'text-gray-500 hover:text-gray-400',
+                          active: 'bg-gray-700/60 text-gray-300',
+                          inactive: 'text-gray-600 hover:text-gray-400',
+                        },
+                        ...(skipCount > 0
+                          ? [
+                              {
+                                status: 'skip',
+                                label: 'skip',
+                                count: skipCount,
+                                idle: 'text-gray-600 hover:text-gray-500',
+                                active: 'bg-gray-700/40 text-gray-400',
+                                inactive: 'text-gray-600 hover:text-gray-400',
+                              },
+                            ]
+                          : []),
+                      ] as {
+                        status: Test['status']
+                        label: string
+                        count: number
+                        idle: string
+                        active: string
+                        inactive: string
+                      }[]
+                    ).map(({status, label, count, idle, active, inactive}) => {
+                      const isFiltering = selectedStatuses.length > 0
+                      const isSelected = selectedStatuses.includes(status)
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => toggleStatus(status)}
+                          className={`px-2 py-1 rounded transition-colors ${
+                            !isFiltering ? idle : isSelected ? active : inactive
+                          }`}>
+                          {count} {label}
+                        </button>
+                      )
+                    })}
+                  </>
+                )}
+              </div>
+            </>
           </div>
 
           {totalTests === 0 ? (
@@ -528,7 +642,9 @@ export default function TestSetPage() {
             </div>
           ) : visibleTests.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-800/70 bg-gray-900/30 px-4 py-6 text-center text-sm text-gray-500">
-              No tests match the selected statuses.
+              {searchQuery
+                ? `No tests match "${searchQuery}".`
+                : 'No tests match the selected statuses.'}
             </div>
           ) : viewMode === 'priority' ? (
             <div className="space-y-1.5">
@@ -550,7 +666,9 @@ export default function TestSetPage() {
               {(testSet.analysisRuns ?? []).map((run) => {
                 const allRunTests = tests.filter((test) => test.analysisRunId === run.id)
                 const runTests = sortTestsByPriority(
-                  allRunTests.filter((t) => !hiddenStatuses.includes(t.status))
+                  selectedStatuses.length === 0
+                    ? allRunTests
+                    : allRunTests.filter((t) => selectedStatuses.includes(t.status))
                 )
                 if (allRunTests.length > 0 && runTests.length === 0) return null
                 const branchCount = Object.keys(run.commitRanges).length
