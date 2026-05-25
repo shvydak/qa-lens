@@ -191,6 +191,8 @@ npm workspaces monorepo with two packages:
 
 **TypeScript (frontend):** the workspace `tsc` target does not include `Array.prototype.at` — use `arr[arr.length - 1]` (otherwise `npm run type-check` fails with TS2550).
 
+**Tri-state boolean props:** When a boolean comes from an async fetch (e.g. `pendingByProject[id]`), distinguish `true` / `false` / `undefined` explicitly — `!value` catches both `false` (loaded: no) and `undefined` (not yet loaded), silently collapsing two different states into one UI outcome.
+
 **Repo refresh UI:** `RepoCard` ties the refresh icon spin to `syncingRepoId === repo.id` from `ProjectDetailPage` — wrap `POST /api/repos/:id/fetch` with `setSyncingRepoId`, not only `sync-branches`.
 
 **Dark UI branch pickers:** prefer custom popover menus over native `<select>` for branch lists (see `RepoCard` active branch + remote “track branch” flows).

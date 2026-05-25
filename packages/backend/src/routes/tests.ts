@@ -46,7 +46,7 @@ testsRouter.post('/', (req, res) => {
   const id = ulid()
   db.prepare(
     "INSERT INTO tests (id, test_set_id, description, title, priority, area, source, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)"
-  ).run(id, testSetId, description.trim(), description.trim(), priority, area ?? null, maxOrder + 1)
+  ).run(id, testSetId, description.trim(), null, priority, area ?? null, maxOrder + 1)
 
   return res.status(201).json({data: testWithAttachments(db, id)})
 })

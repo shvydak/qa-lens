@@ -35,6 +35,7 @@ export default function TestSetPage() {
   const [marking, setMarking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('priority')
+  const [hiddenStatuses, setHiddenStatuses] = useState<Test['status'][]>([])
   const [areaFilterOpen, setAreaFilterOpen] = useState(false)
   const [hiddenAreaKeys, setHiddenAreaKeys] = useState<string[]>([])
   const [draftHiddenAreaKeys, setDraftHiddenAreaKeys] = useState<string[]>([])
@@ -178,15 +179,28 @@ export default function TestSetPage() {
       ? `${doneTests}/${totalTests} done`
       : 'No tests'
 
-  const sortedTests = sortTestsByPriority(tests)
+  const toggleStatus = (status: Test['status']) => {
+    setHiddenStatuses((prev) =>
+      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
+    )
+  }
+
+  const visibleTests =
+    hiddenStatuses.length === 0 ? tests : tests.filter((t) => !hiddenStatuses.includes(t.status))
+
+  const passCount = tests.filter((t) => t.status === 'pass').length
+  const skipCount = tests.filter((t) => t.status === 'skip').length
+
+  const sortedTests = sortTestsByPriority(visibleTests)
   const runById = new Map((testSet.analysisRuns ?? []).map((run) => [run.id, run]))
   const allAreaGroups = groupTestsByArea(tests)
   const areaGroups = allAreaGroups
     .filter((group) => !hiddenAreaKeys.includes(group.key))
     .map((group) => ({
       ...group,
-      tests: sortTestsByPriority(group.tests),
+      tests: sortTestsByPriority(group.tests.filter((t) => !hiddenStatuses.includes(t.status))),
     }))
+    .filter((group) => group.tests.length > 0)
   const hiddenAreaCount = hiddenAreaKeys.filter((key) =>
     allAreaGroups.some((group) => group.key === key)
   ).length
@@ -453,13 +467,56 @@ export default function TestSetPage() {
                       </div>
                     )}
                   </div>
-                  <span className="text-emerald-500">
-                    {tests.filter((t) => t.status === 'pass').length} pass
-                  </span>
-                  <span className="text-red-400">{failedTests} fail</span>
-                  <span className="text-gray-500">
-                    {tests.filter((t) => t.status === 'not_tested').length} pending
-                  </span>
+                  {(
+                    [
+                      {
+                        status: 'pass',
+                        label: 'pass',
+                        count: passCount,
+                        on: 'text-emerald-500 hover:text-emerald-400',
+                        off: 'text-gray-700 line-through hover:text-gray-600',
+                      },
+                      {
+                        status: 'fail',
+                        label: 'fail',
+                        count: failedTests,
+                        on: 'text-red-400 hover:text-red-300',
+                        off: 'text-gray-700 line-through hover:text-gray-600',
+                      },
+                      {
+                        status: 'not_tested',
+                        label: 'pending',
+                        count: tests.filter((t) => t.status === 'not_tested').length,
+                        on: 'text-gray-500 hover:text-gray-400',
+                        off: 'text-gray-700 line-through hover:text-gray-600',
+                      },
+                      ...(skipCount > 0
+                        ? [
+                            {
+                              status: 'skip',
+                              label: 'skip',
+                              count: skipCount,
+                              on: 'text-gray-600 hover:text-gray-500',
+                              off: 'text-gray-700 line-through hover:text-gray-600',
+                            },
+                          ]
+                        : []),
+                    ] as {
+                      status: Test['status']
+                      label: string
+                      count: number
+                      on: string
+                      off: string
+                    }[]
+                  ).map(({status, label, count, on, off}) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => toggleStatus(status)}
+                      className={`px-2 py-1 rounded transition-colors ${hiddenStatuses.includes(status) ? off : on}`}>
+                      {count} {label}
+                    </button>
+                  ))}
                 </>
               )}
             </div>
@@ -468,6 +525,10 @@ export default function TestSetPage() {
           {totalTests === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-800/70 bg-gray-900/30 px-4 py-6 text-center text-sm text-gray-500">
               No test cases yet.
+            </div>
+          ) : visibleTests.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-800/70 bg-gray-900/30 px-4 py-6 text-center text-sm text-gray-500">
+              No tests match the selected statuses.
             </div>
           ) : viewMode === 'priority' ? (
             <div className="space-y-1.5">
@@ -487,9 +548,11 @@ export default function TestSetPage() {
           ) : viewMode === 'update' ? (
             <div className="space-y-5">
               {(testSet.analysisRuns ?? []).map((run) => {
+                const allRunTests = tests.filter((test) => test.analysisRunId === run.id)
                 const runTests = sortTestsByPriority(
-                  tests.filter((test) => test.analysisRunId === run.id)
+                  allRunTests.filter((t) => !hiddenStatuses.includes(t.status))
                 )
+                if (allRunTests.length > 0 && runTests.length === 0) return null
                 const branchCount = Object.keys(run.commitRanges).length
                 return (
                   <section key={run.id}>

@@ -162,6 +162,39 @@ describe('DELETE /api/tests/:testId/attachments/:attachmentId', () => {
   })
 })
 
+describe('POST /api/test-sets/:testSetId/tests', () => {
+  it('creates a manual test with null title so description is not duplicated in UI', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+
+    const res = await request(app)
+      .post(`/api/test-sets/${tsId}/tests`)
+      .send({description: 'Check login flow', priority: 'high', area: 'Auth'})
+
+    expect(res.status).toBe(201)
+    expect(res.body.data.description).toBe('Check login flow')
+    expect(res.body.data.title).toBeNull()
+    expect(res.body.data.priority).toBe('high')
+    expect(res.body.data.area).toBe('Auth')
+    expect(res.body.data.source).toBe('manual')
+  })
+
+  it('returns 400 when description is missing', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+
+    const res = await request(app).post(`/api/test-sets/${tsId}/tests`).send({priority: 'low'})
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 for non-existent test set', async () => {
+    const res = await request(app).post('/api/test-sets/ghost/tests').send({description: 'Test'})
+
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('DELETE /api/tests/:testId', () => {
   it('deletes test and calls unlink for each attachment file', async () => {
     const projectId = seedProject(testDb)

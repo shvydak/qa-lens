@@ -1,13 +1,14 @@
 import {useState, useEffect, type CSSProperties} from 'react'
 import {Outlet, Link, useLocation, useMatch} from 'react-router-dom'
 import {apiFetch} from '../../api/client.ts'
-import type {Project, TestSet, ChecklistCounts} from '../../types/index.ts'
+import type {Project, Repository, TestSet, ChecklistCounts} from '../../types/index.ts'
 import {useActiveProject} from '../../contexts/ActiveProjectContext.tsx'
 import SettingsModal from '../settings/SettingsModal.tsx'
 
 export default function AppShell() {
   const [projects, setProjects] = useState<Project[]>([])
   const [sidebarTestSets, setSidebarTestSets] = useState<TestSet[]>([])
+  const [pendingByProject, setPendingByProject] = useState<Record<string, boolean>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
   const location = useLocation()
   const {activeProjectId, testSetVersion} = useActiveProject()
@@ -17,6 +18,23 @@ export default function AppShell() {
   useEffect(() => {
     apiFetch<Project[]>('GET', '/api/projects')
       .then(setProjects)
+      .catch(() => {})
+  }, [location.pathname])
+
+  useEffect(() => {
+    apiFetch<Project[]>('GET', '/api/projects')
+      .then(async (data) => {
+        const results = await Promise.allSettled(
+          data.map((p) => apiFetch<Repository[]>('GET', `/api/projects/${p.id}/repos`))
+        )
+        const pending: Record<string, boolean> = {}
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled') {
+            pending[data[i].id] = result.value.some((r) => (r.unanalyzedCount ?? 0) > 0)
+          }
+        })
+        setPendingByProject(pending)
+      })
       .catch(() => {})
   }, [location.pathname])
 
@@ -80,7 +98,22 @@ export default function AppShell() {
                         ? 'bg-indigo-500/15 text-indigo-300'
                         : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
                     }`}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0 opacity-40" />
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        pendingByProject[project.id] === true
+                          ? 'bg-amber-400'
+                          : pendingByProject[project.id] === false
+                            ? 'bg-emerald-500'
+                            : 'bg-current opacity-40'
+                      }`}
+                      title={
+                        pendingByProject[project.id] === true
+                          ? 'Analysis required'
+                          : pendingByProject[project.id] === false
+                            ? 'Up to date'
+                            : undefined
+                      }
+                    />
                     <span className="truncate">{project.name}</span>
                   </Link>
 
