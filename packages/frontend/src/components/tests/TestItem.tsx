@@ -1,6 +1,7 @@
 import {useState, useEffect, useRef} from 'react'
 import type {Test, TestAttachment} from '../../types/index.ts'
 import {API_BASE} from '../../api/client.ts'
+import ConfirmDialog from '../ConfirmDialog.tsx'
 
 const PRIORITY_STYLES = {
   high: 'text-red-400 bg-red-400/10',
@@ -106,6 +107,7 @@ export default function TestItem({
   const [uploadingCount, setUploadingCount] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [noteError, setNoteError] = useState<string | null>(null)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -548,7 +550,7 @@ export default function TestItem({
           )}
           <button
             type="button"
-            onClick={onDelete}
+            onClick={() => setConfirmDeleteOpen(true)}
             aria-label="Delete test"
             title="Delete"
             className="p-1 text-gray-700 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors">
@@ -564,6 +566,25 @@ export default function TestItem({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete test?"
+        description={
+          <>
+            <p className="line-clamp-2 font-medium text-gray-300">{headline}</p>
+            <p className="mt-2 text-gray-500">This cannot be undone.</p>
+          </>
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={() => {
+          setConfirmDeleteOpen(false)
+          onDelete()
+        }}
+      />
     </div>
   )
 }

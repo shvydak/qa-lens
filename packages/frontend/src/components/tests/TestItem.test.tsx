@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest'
-import {render, screen} from '@testing-library/react'
+import {render, screen, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type {Test} from '../../types/index.ts'
 import TestItem from './TestItem.tsx'
@@ -26,19 +26,19 @@ const baseTest: Test = {
   attachments: [],
 }
 
-function renderItem(overrides: Partial<Test> = {}, onStatusChange = vi.fn()) {
+function renderItem(overrides: Partial<Test> = {}, onStatusChange = vi.fn(), onDelete = vi.fn()) {
   const test = {...baseTest, ...overrides}
   render(
     <TestItem
       test={test}
       onStatusChange={onStatusChange}
-      onDelete={vi.fn()}
+      onDelete={onDelete}
       onNoteChange={vi.fn().mockResolvedValue(undefined)}
       onAttachmentUpload={vi.fn().mockResolvedValue(undefined)}
       onAttachmentDelete={vi.fn().mockResolvedValue(undefined)}
     />
   )
-  return {onStatusChange}
+  return {onStatusChange, onDelete}
 }
 
 describe('TestItem status buttons', () => {
@@ -117,5 +117,43 @@ describe('TestItem display', () => {
   it('does not show manual badge for ai source', () => {
     renderItem({source: 'ai'})
     expect(screen.queryByText('manual')).not.toBeInTheDocument()
+  })
+})
+
+describe('TestItem delete confirmation', () => {
+  it('opens a confirmation dialog instead of deleting immediately', async () => {
+    const onDelete = vi.fn()
+    renderItem({}, vi.fn(), onDelete)
+
+    await userEvent.click(screen.getByRole('button', {name: /delete test/i}))
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('Delete test?')).toBeInTheDocument()
+    expect(within(dialog).getByText('Verify login flow')).toBeInTheDocument()
+    expect(within(dialog).getByText('This cannot be undone.')).toBeInTheDocument()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('cancels deletion from the dialog', async () => {
+    const onDelete = vi.fn()
+    renderItem({}, vi.fn(), onDelete)
+
+    await userEvent.click(screen.getByRole('button', {name: /delete test/i}))
+    await userEvent.click(screen.getByRole('button', {name: /^cancel$/i}))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('deletes after confirmation', async () => {
+    const onDelete = vi.fn()
+    renderItem({}, vi.fn(), onDelete)
+
+    await userEvent.click(screen.getByRole('button', {name: /delete test/i}))
+    await userEvent.click(screen.getByRole('button', {name: /^delete$/i}))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(onDelete).toHaveBeenCalledTimes(1)
   })
 })
