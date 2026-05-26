@@ -4,7 +4,7 @@ import {apiFetch} from '../api/client.ts'
 import type {TestSet, Test, Project} from '../types/index.ts'
 import {useActiveProject} from '../contexts/ActiveProjectContext.tsx'
 import TestItem, {getAreaBadgeStyle} from '../components/tests/TestItem.tsx'
-import AddTestForm from '../components/tests/AddTestForm.tsx'
+import AddTestForm, {type AddTestPayload} from '../components/tests/AddTestForm.tsx'
 import TestSetInsights from '../components/testSets/TestSetInsights.tsx'
 import {
   groupTestsByArea,
@@ -41,6 +41,16 @@ export default function TestSetPage() {
   const [draftHiddenAreaKeys, setDraftHiddenAreaKeys] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editingTest, setEditingTest] = useState<Test | null>(null)
+  const [highlightedTestId, setHighlightedTestId] = useState<string | null>(null)
+  const [hiddenAddedTest, setHiddenAddedTest] = useState<{id: string; label: string} | null>(null)
+  const [undoItem, setUndoItem] = useState<{
+    testId: string
+    label: string
+    prevStatus: Test['status']
+    timerId: number
+  } | null>(null)
   const areaFilterRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -101,10 +111,48 @@ export default function TestSetPage() {
     }
   }, [areaFilterOpen, draftHiddenAreaKeys])
 
+  useEffect(() => {
+    if (!highlightedTestId) return
+    const id = window.requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-test-id="${highlightedTestId}"]`)
+      if (el && el instanceof HTMLElement) {
+        el.scrollIntoView({behavior: 'smooth', block: 'center'})
+      }
+    })
+    const timeout = window.setTimeout(() => setHighlightedTestId(null), 1800)
+    return () => {
+      window.cancelAnimationFrame(id)
+      window.clearTimeout(timeout)
+    }
+  }, [highlightedTestId])
+
   const updateTestStatus = async (test: Test, newStatus: Test['status']) => {
+    const prevStatus = test.status
     const updated = await apiFetch<Test>('PATCH', `/api/tests/${test.id}`, {status: newStatus})
     setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
     invalidateTestSets()
+
+    if (selectedStatuses.length > 0 && !selectedStatuses.includes(newStatus)) {
+      if (undoItem) window.clearTimeout(undoItem.timerId)
+      const timerId = window.setTimeout(() => setUndoItem(null), 4000)
+      setUndoItem({
+        testId: updated.id,
+        label: updated.title || updated.description,
+        prevStatus,
+        timerId,
+      })
+    }
+  }
+
+  const handleUndo = async () => {
+    if (!undoItem) return
+    window.clearTimeout(undoItem.timerId)
+    const {testId, prevStatus} = undoItem
+    setUndoItem(null)
+    const restored = await apiFetch<Test>('PATCH', `/api/tests/${testId}`, {status: prevStatus})
+    setTests((ts) => ts.map((t) => (t.id === restored.id ? restored : t)))
+    invalidateTestSets()
+    setHighlightedTestId(restored.id)
   }
 
   const updateTestNote = async (testId: string, note: string | null) => {
@@ -131,9 +179,32 @@ export default function TestSetPage() {
     setTests((ts) => ts.filter((t) => t.id !== testId))
   }
 
-  const addTest = async (data: {description: string; priority: Test['priority']; area: string}) => {
+  const addTest = async (data: AddTestPayload) => {
     const test = await apiFetch<Test>('POST', `/api/test-sets/${id}/tests`, data)
     setTests((ts) => [...ts, test])
+
+    const q = searchQuery.trim().toLowerCase()
+    const passesStatus = selectedStatuses.length === 0 || selectedStatuses.includes(test.status)
+    const passesSearch =
+      q === '' ||
+      test.description.toLowerCase().includes(q) ||
+      (test.title ?? '').toLowerCase().includes(q) ||
+      (test.area ?? '').toLowerCase().includes(q)
+
+    if (!passesStatus || !passesSearch) {
+      setHiddenAddedTest({id: test.id, label: test.title || test.description})
+      setHighlightedTestId(null)
+    } else {
+      setHiddenAddedTest(null)
+      setHighlightedTestId(test.id)
+    }
+  }
+
+  const updateTest = async (testId: string, data: AddTestPayload) => {
+    const updated = await apiFetch<Test>('PATCH', `/api/tests/${testId}`, data)
+    setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+    invalidateTestSets()
+    setHighlightedTestId(updated.id)
   }
 
   const closeReview = async (status: 'reviewed' | 'not_required') => {
@@ -371,7 +442,7 @@ export default function TestSetPage() {
         <TestSetInsights testSet={testSet} />
 
         <div className="mb-6">
-          <div className="sticky top-[51px] z-20 flex items-center gap-4 py-3 mb-1 bg-gray-950 border-b border-gray-800/60">
+          <div className="sticky top-[51px] z-10 flex items-center gap-4 py-3 mb-1 bg-gray-950 border-b border-gray-800/60">
             <>
               <div className="flex flex-1 items-center gap-3 min-w-0">
                 <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex-shrink-0">
@@ -653,8 +724,10 @@ export default function TestSetPage() {
                   key={test.id}
                   test={test}
                   metadata={runById.get(test.analysisRunId ?? '')?.label}
+                  highlighted={highlightedTestId === test.id}
                   onStatusChange={(status) => updateTestStatus(test, status)}
                   onDelete={() => deleteTest(test.id)}
+                  onEdit={testSet.status === 'active' ? () => setEditingTest(test) : undefined}
                   onNoteChange={(note) => updateTestNote(test.id, note)}
                   onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
                   onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
@@ -704,8 +777,12 @@ export default function TestSetPage() {
                           <TestItem
                             key={test.id}
                             test={test}
+                            highlighted={highlightedTestId === test.id}
                             onStatusChange={(status) => updateTestStatus(test, status)}
                             onDelete={() => deleteTest(test.id)}
+                            onEdit={
+                              testSet.status === 'active' ? () => setEditingTest(test) : undefined
+                            }
                             onNoteChange={(note) => updateTestNote(test.id, note)}
                             onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
                             onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
@@ -747,8 +824,12 @@ export default function TestSetPage() {
                           key={test.id}
                           test={test}
                           metadata={runById.get(test.analysisRunId ?? '')?.label}
+                          highlighted={highlightedTestId === test.id}
                           onStatusChange={(status) => updateTestStatus(test, status)}
                           onDelete={() => deleteTest(test.id)}
+                          onEdit={
+                            testSet.status === 'active' ? () => setEditingTest(test) : undefined
+                          }
                           onNoteChange={(note) => updateTestNote(test.id, note)}
                           onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
                           onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
@@ -760,17 +841,112 @@ export default function TestSetPage() {
               )}
             </div>
           )}
-
-          {testSet.status === 'active' && (
-            <div className="mt-3">
-              <AddTestForm onAdd={addTest} />
-            </div>
-          )}
         </div>
       </div>
 
+      {undoItem && (
+        <div className="fixed bottom-24 left-1/2 z-40 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-gray-700/60 bg-gray-900/95 px-4 py-3 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs text-gray-300">{undoItem.label}</p>
+              <p className="mt-0.5 text-xs text-gray-500">Moved out of current filter view</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleUndo}
+              className="flex-shrink-0 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700">
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                window.clearTimeout(undoItem.timerId)
+                setUndoItem(null)
+              }}
+              aria-label="Dismiss"
+              className="flex-shrink-0 rounded-md p-1 text-gray-600 transition-colors hover:bg-gray-800/60 hover:text-gray-400">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M3 3l6 6M9 3l-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {hiddenAddedTest && (
+        <div className="fixed bottom-24 left-1/2 z-40 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-indigo-500/30 bg-gray-900/95 px-4 py-3 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-indigo-300">
+                Added — hidden by current filter
+              </p>
+              <p className="mt-0.5 truncate text-xs text-gray-400">{hiddenAddedTest.label}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatuses([])
+                setSearchQuery('')
+                setHighlightedTestId(hiddenAddedTest.id)
+                setHiddenAddedTest(null)
+              }}
+              className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500">
+              Show
+            </button>
+            <button
+              type="button"
+              onClick={() => setHiddenAddedTest(null)}
+              aria-label="Dismiss"
+              className="flex-shrink-0 rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-800/60 hover:text-gray-300">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M3 3l6 6M9 3l-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {testSet.status === 'active' && !addModalOpen && !editingTest && (
+        <button
+          type="button"
+          onClick={() => setAddModalOpen(true)}
+          aria-label="Add test"
+          title="Add test"
+          className="group fixed bottom-24 right-8 z-40 flex h-12 items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-600 pl-3.5 pr-4 text-sm font-medium text-white shadow-xl shadow-indigo-900/40 transition-all hover:bg-indigo-500 hover:shadow-2xl hover:shadow-indigo-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 focus:ring-offset-2 focus:ring-offset-gray-950">
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+            <path
+              d="M6 1.5v9M1.5 6h9"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+          Add test
+        </button>
+      )}
+
+      <AddTestForm
+        open={addModalOpen || editingTest !== null}
+        initialTest={editingTest ?? undefined}
+        onClose={() => {
+          setAddModalOpen(false)
+          setEditingTest(null)
+        }}
+        onSubmit={(data) => (editingTest ? updateTest(editingTest.id, data) : addTest(data))}
+      />
+
       {testSet.status === 'active' && (
-        <div className="fixed bottom-0 left-56 right-0 bg-gray-950/90 backdrop-blur-md border-t border-gray-800/60 px-8 py-4">
+        <div className="fixed bottom-0 left-56 right-0 z-30 bg-gray-950/90 backdrop-blur-md border-t border-gray-800/60 px-8 py-4">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <div className="text-sm text-gray-500">
               {isEmptyReview ? (

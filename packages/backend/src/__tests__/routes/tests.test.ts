@@ -83,6 +83,81 @@ describe('PATCH /api/tests/:testId', () => {
     const res = await request(app).patch('/api/tests/ghost').send({status: 'pass'})
     expect(res.status).toBe(404)
   })
+
+  it('updates structured fields and preserves untouched ones', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+    const testId = seedTest(testDb, tsId)
+
+    testDb
+      .prepare(
+        `UPDATE tests SET title = ?, area = ?, user_scenario = ?, preconditions = ?, steps = ?, expected_result = ?, risk = ?, technical_context = ? WHERE id = ?`
+      )
+      .run(
+        'Original title',
+        'auth',
+        'Original scenario',
+        JSON.stringify(['p1']),
+        JSON.stringify(['s1', 's2']),
+        'orig expected',
+        'orig risk',
+        'orig tech',
+        testId
+      )
+
+    const res = await request(app)
+      .patch(`/api/tests/${testId}`)
+      .send({
+        title: 'Updated title',
+        priority: 'high',
+        preconditions: ['new pre'],
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({
+      title: 'Updated title',
+      priority: 'high',
+      preconditions: ['new pre'],
+      area: 'auth',
+      userScenario: 'Original scenario',
+      steps: ['s1', 's2'],
+      expectedResult: 'orig expected',
+      risk: 'orig risk',
+      technicalContext: 'orig tech',
+    })
+  })
+
+  it('clears nullable string fields when explicitly set to empty', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+    const testId = seedTest(testDb, tsId)
+    testDb.prepare('UPDATE tests SET user_scenario = ? WHERE id = ?').run('to be cleared', testId)
+
+    const res = await request(app).patch(`/api/tests/${testId}`).send({userScenario: '   '})
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.userScenario).toBeNull()
+  })
+
+  it('rejects invalid priority on PATCH', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+    const testId = seedTest(testDb, tsId)
+
+    const res = await request(app).patch(`/api/tests/${testId}`).send({priority: 'urgent'})
+
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects empty description on PATCH', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+    const testId = seedTest(testDb, tsId)
+
+    const res = await request(app).patch(`/api/tests/${testId}`).send({description: '  '})
+
+    expect(res.status).toBe(400)
+  })
 })
 
 describe('POST /api/tests/:testId/attachments', () => {
@@ -192,6 +267,69 @@ describe('POST /api/test-sets/:testSetId/tests', () => {
     const res = await request(app).post('/api/test-sets/ghost/tests').send({description: 'Test'})
 
     expect(res.status).toBe(404)
+  })
+
+  it('creates a manual test with full structured fields', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+
+    const res = await request(app)
+      .post(`/api/test-sets/${tsId}/tests`)
+      .send({
+        description: 'Verify password reset flow',
+        priority: 'high',
+        area: 'Auth',
+        title: 'Password reset',
+        userScenario: 'User clicks "Forgot password" and resets via email link.',
+        preconditions: ['User has an account', '  '],
+        steps: ['Open login page', 'Click forgot password', 'Submit email'],
+        expectedResult: 'Reset email is sent within 30s',
+        risk: 'Email may go to spam',
+        technicalContext: 'Uses SendGrid template ID 42',
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({
+      description: 'Verify password reset flow',
+      title: 'Password reset',
+      priority: 'high',
+      area: 'Auth',
+      userScenario: 'User clicks "Forgot password" and resets via email link.',
+      preconditions: ['User has an account'],
+      steps: ['Open login page', 'Click forgot password', 'Submit email'],
+      expectedResult: 'Reset email is sent within 30s',
+      risk: 'Email may go to spam',
+      technicalContext: 'Uses SendGrid template ID 42',
+      source: 'manual',
+    })
+  })
+
+  it('ignores non-string entries in preconditions/steps and stores empty arrays as null', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+
+    const res = await request(app)
+      .post(`/api/test-sets/${tsId}/tests`)
+      .send({
+        description: 'Plain test',
+        preconditions: [],
+        steps: [123, null, '   '],
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data.preconditions).toEqual([])
+    expect(res.body.data.steps).toEqual([])
+  })
+
+  it('rejects invalid priority', async () => {
+    const projectId = seedProject(testDb)
+    const tsId = seedTestSet(testDb, projectId)
+
+    const res = await request(app)
+      .post(`/api/test-sets/${tsId}/tests`)
+      .send({description: 'x', priority: 'urgent'})
+
+    expect(res.status).toBe(400)
   })
 })
 

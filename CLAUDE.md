@@ -231,3 +231,15 @@ Key variables:
 The backend does not load `.env` files itself; provide backend env vars through the shell/process manager unless env loading is added. Vite env vars must be available to the frontend package when running `packages/frontend`.
 
 For Claude CLI provider to work, `claude` must be installed and authenticated on the host machine. Same for `gemini` CLI. Prefer Claude Code model aliases over pinned IDs when adding model choices; aliases track the latest models supported by the installed CLI.
+
+**Manual test creation / editing:** `POST /api/test-sets/:id/tests` and `PATCH /api/tests/:testId` both accept the full structured field set (`title`, `priority`, `area`, `userScenario`, `preconditions`, `steps`, `expectedResult`, `risk`, `technicalContext`). Helper functions `trimToNull` and `trimStringArray` in `routes/tests.ts` are shared by both handlers — reuse them if adding similar field handling elsewhere.
+
+**TestItem card structure:** `flex-col` outer wrapper; top section `flex items-start` (status icon + content), bottom action bar with explicit **Pass / Fail / Skip** buttons + Edit / Delete icons. Clicking the active status button resets to `not_tested`. No cycle-toggle — do not reintroduce it.
+
+**Test headline rule:** `test.title || test.description` is the single displayed headline. `title` is set by AI; manual form writes only to `description` and explicitly clears `title` (sends `title: ''` → backend trims to `null`). Never show both as separate lines.
+
+**AddTestForm modal:** accepts `open`, `onClose`, `onSubmit`, `initialTest?`. When `initialTest` is provided it operates in edit mode: prefills all fields from `initialTest.title || initialTest.description`, sends PATCH payload. Structured-details section (scenario/steps/etc.) auto-expands in edit mode if any structured field is non-empty.
+
+**Undo toast pattern:** when a status change causes a card to leave the active filter view, show a 4-second undo toast (state `undoItem` in `TestSetPage`). `handleUndo` sends a PATCH to restore `prevStatus` and calls `setHighlightedTestId`. Clear `timerId` on dismiss/undo to avoid stale state updates.
+
+**Frontend component tests:** co-locate `*.test.tsx` next to the component (e.g. `TestItem.test.tsx`). Use RTL + `@testing-library/user-event` — see `AnalysisPanel.test.tsx` for the setup pattern. `API_BASE` import in `TestItem` requires the `apiFetch` module to be importable in jsdom; no special mock needed if it only reads the constant.

@@ -19,18 +19,51 @@ function testWithAttachments(db: Database.Database, testId: string) {
   return {...testToDto(test), attachments: attachments.map(attachmentToDto)}
 }
 
+const PRIORITIES = new Set(['high', 'medium', 'low'])
+
+function trimToNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function trimStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
 testsRouter.post('/', (req, res) => {
   const {testSetId} = req.params as {testSetId: string}
-  const {
-    description,
-    priority = 'medium',
-    area,
-  } = req.body as {
+  const body = req.body as {
     description?: string
     priority?: string
     area?: string
+    title?: string
+    userScenario?: string
+    preconditions?: unknown
+    steps?: unknown
+    expectedResult?: string
+    risk?: string
+    technicalContext?: string
   }
-  if (!description?.trim()) return res.status(400).json({error: 'description is required'})
+
+  const description = body.description?.trim()
+  if (!description) return res.status(400).json({error: 'description is required'})
+
+  const priority = body.priority ?? 'medium'
+  if (!PRIORITIES.has(priority)) return res.status(400).json({error: 'invalid priority'})
+
+  const title = trimToNull(body.title)
+  const area = trimToNull(body.area)
+  const userScenario = trimToNull(body.userScenario)
+  const expectedResult = trimToNull(body.expectedResult)
+  const risk = trimToNull(body.risk)
+  const technicalContext = trimToNull(body.technicalContext)
+  const preconditions = trimStringArray(body.preconditions)
+  const steps = trimStringArray(body.steps)
 
   const db = getDb()
   const testSet = db.prepare('SELECT id FROM test_sets WHERE id = ?').get(testSetId)
@@ -45,8 +78,26 @@ testsRouter.post('/', (req, res) => {
 
   const id = ulid()
   db.prepare(
-    "INSERT INTO tests (id, test_set_id, description, title, priority, area, source, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)"
-  ).run(id, testSetId, description.trim(), null, priority, area ?? null, maxOrder + 1)
+    `INSERT INTO tests (
+      id, test_set_id, description, title, priority, area,
+      user_scenario, preconditions, steps, expected_result, risk, technical_context,
+      source, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)`
+  ).run(
+    id,
+    testSetId,
+    description,
+    title,
+    priority,
+    area,
+    userScenario,
+    preconditions.length > 0 ? JSON.stringify(preconditions) : null,
+    steps.length > 0 ? JSON.stringify(steps) : null,
+    expectedResult,
+    risk,
+    technicalContext,
+    maxOrder + 1
+  )
 
   return res.status(201).json({data: testWithAttachments(db, id)})
 })
@@ -58,22 +109,85 @@ testActionsRouter.patch('/:testId', (req, res) => {
     | undefined
   if (!test) return res.status(404).json({error: 'Test not found'})
 
-  const {status, description, sortOrder, note} = req.body as {
+  const body = req.body as {
     status?: string
     description?: string
     sortOrder?: number
     note?: string | null
+    title?: string | null
+    priority?: string
+    area?: string | null
+    userScenario?: string | null
+    preconditions?: unknown
+    steps?: unknown
+    expectedResult?: string | null
+    risk?: string | null
+    technicalContext?: string | null
   }
 
-  const newNote = note !== undefined ? note?.trim() || null : ((test.note as string | null) ?? null)
+  if (body.priority !== undefined && !PRIORITIES.has(body.priority)) {
+    return res.status(400).json({error: 'invalid priority'})
+  }
+
+  let description = test.description as string
+  if (body.description !== undefined) {
+    const trimmed = body.description?.trim() ?? ''
+    if (!trimmed) return res.status(400).json({error: 'description cannot be empty'})
+    description = trimmed
+  }
+
+  const newNote =
+    body.note !== undefined ? body.note?.trim() || null : ((test.note as string | null) ?? null)
+
+  const arrayToColumn = (value: unknown): string | null => {
+    const arr = trimStringArray(value)
+    return arr.length > 0 ? JSON.stringify(arr) : null
+  }
+
+  const title = 'title' in body ? trimToNull(body.title) : ((test.title as string | null) ?? null)
+  const area = 'area' in body ? trimToNull(body.area) : ((test.area as string | null) ?? null)
+  const priority = body.priority ?? (test.priority as string)
+  const userScenario =
+    'userScenario' in body
+      ? trimToNull(body.userScenario)
+      : ((test.user_scenario as string | null) ?? null)
+  const expectedResult =
+    'expectedResult' in body
+      ? trimToNull(body.expectedResult)
+      : ((test.expected_result as string | null) ?? null)
+  const risk = 'risk' in body ? trimToNull(body.risk) : ((test.risk as string | null) ?? null)
+  const technicalContext =
+    'technicalContext' in body
+      ? trimToNull(body.technicalContext)
+      : ((test.technical_context as string | null) ?? null)
+  const preconditions =
+    'preconditions' in body
+      ? arrayToColumn(body.preconditions)
+      : ((test.preconditions as string | null) ?? null)
+  const steps =
+    'steps' in body ? arrayToColumn(body.steps) : ((test.steps as string | null) ?? null)
 
   db.prepare(
-    'UPDATE tests SET status = ?, description = ?, sort_order = ?, note = ? WHERE id = ?'
+    `UPDATE tests SET
+       status = ?, description = ?, sort_order = ?, note = ?,
+       title = ?, priority = ?, area = ?,
+       user_scenario = ?, preconditions = ?, steps = ?,
+       expected_result = ?, risk = ?, technical_context = ?
+     WHERE id = ?`
   ).run(
-    status ?? test.status,
-    description ?? test.description,
-    sortOrder ?? test.sort_order,
+    body.status ?? test.status,
+    description,
+    body.sortOrder ?? test.sort_order,
     newNote,
+    title,
+    priority,
+    area,
+    userScenario,
+    preconditions,
+    steps,
+    expectedResult,
+    risk,
+    technicalContext,
     req.params.testId
   )
 
