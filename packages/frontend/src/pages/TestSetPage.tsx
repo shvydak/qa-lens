@@ -1,4 +1,4 @@
-import {useState, useEffect, useRef} from 'react'
+import {useState, useEffect, useRef, Fragment} from 'react'
 import {useParams, Link, useNavigate} from 'react-router-dom'
 import {apiFetch} from '../api/client.ts'
 import type {TestSet, Test, Project} from '../types/index.ts'
@@ -51,8 +51,15 @@ export default function TestSetPage() {
     prevStatus: Test['status']
     timerId: number
   } | null>(null)
+  const [collapsedRunIds, setCollapsedRunIds] = useState<Set<string>>(new Set())
   const areaFilterRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    const runs = testSet?.analysisRuns
+    if (!runs || runs.length === 0) return
+    setCollapsedRunIds(new Set(runs.slice(0, -1).map((r) => r.id)))
+  }, [testSet?.id])
 
   useEffect(() => {
     if (!id) return
@@ -174,6 +181,15 @@ export default function TestSetPage() {
     setTests((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
   }
 
+  const toggleRunCollapse = (runId: string) => {
+    setCollapsedRunIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(runId)) next.delete(runId)
+      else next.add(runId)
+      return next
+    })
+  }
+
   const deleteTest = async (testId: string) => {
     await apiFetch('DELETE', `/api/tests/${testId}`)
     setTests((ts) => ts.filter((t) => t.id !== testId))
@@ -257,16 +273,26 @@ export default function TestSetPage() {
   }
 
   const totalTests = tests.length
-  const doneTests = tests.filter((t) => t.status === 'pass' || t.status === 'skip').length
+  const passCount = tests.filter((t) => t.status === 'pass').length
   const failedTests = tests.filter((t) => t.status === 'fail').length
+  const skipCount = tests.filter((t) => t.status === 'skip').length
+  const notTestedCount = totalTests - passCount - failedTests - skipCount
+  const doneTests = passCount + skipCount
   const progress = totalTests > 0 ? (doneTests / totalTests) * 100 : 0
   const isEmptyReview = testSet.isEmptyReview && totalTests === 0
   const isClosedReview = testSet.status !== 'active'
   const compactProgressLabel = isEmptyReview
     ? 'Empty review'
-    : totalTests > 0
-      ? `${doneTests}/${totalTests} done`
-      : 'No tests'
+    : totalTests === 0
+      ? 'No tests'
+      : (() => {
+          const parts: string[] = []
+          if (passCount > 0) parts.push(`${passCount} passed`)
+          if (failedTests > 0) parts.push(`${failedTests} failed`)
+          if (skipCount > 0) parts.push(`${skipCount} skipped`)
+          if (notTestedCount > 0) parts.push(`${notTestedCount} not run`)
+          return parts.length > 0 ? parts.join(' · ') : `${totalTests} cases`
+        })()
 
   const toggleStatus = (status: Test['status']) => {
     setSelectedStatuses((prev) => {
@@ -284,9 +310,6 @@ export default function TestSetPage() {
         t.description.toLowerCase().includes(q) ||
         (t.area ?? '').toLowerCase().includes(q))
   )
-
-  const passCount = tests.filter((t) => t.status === 'pass').length
-  const skipCount = tests.filter((t) => t.status === 'skip').length
 
   const sortedTests = sortTestsByPriority(visibleTests)
   const runById = new Map((testSet.analysisRuns ?? []).map((run) => [run.id, run]))
@@ -352,11 +375,31 @@ export default function TestSetPage() {
               </span>
               <div className="hidden items-center gap-2 sm:flex">
                 <span className="text-xs text-gray-500">{compactProgressLabel}</span>
-                <div className="h-1 w-20 overflow-hidden rounded-full bg-gray-800">
-                  <div
-                    className="h-full rounded-full bg-indigo-500 transition-all duration-500"
-                    style={{width: `${progress}%`}}
-                  />
+                <div className="flex h-1 w-20 overflow-hidden rounded-full bg-gray-800">
+                  {passCount > 0 && (
+                    <span
+                      className="h-full bg-emerald-500/85 transition-all duration-500"
+                      style={{flexGrow: passCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                    />
+                  )}
+                  {failedTests > 0 && (
+                    <span
+                      className="h-full bg-red-500/80 transition-all duration-500"
+                      style={{flexGrow: failedTests, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                    />
+                  )}
+                  {skipCount > 0 && (
+                    <span
+                      className="h-full bg-amber-500/70 transition-all duration-500"
+                      style={{flexGrow: skipCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                    />
+                  )}
+                  {notTestedCount > 0 && (
+                    <span
+                      className="h-full bg-gray-600/90"
+                      style={{flexGrow: notTestedCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -410,11 +453,35 @@ export default function TestSetPage() {
               </span>
               <span>{Math.round(progress)}%</span>
             </div>
-            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                style={{width: `${progress}%`}}
-              />
+            <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-800">
+              {passCount > 0 && (
+                <span
+                  className="h-full bg-emerald-500/85 transition-all duration-500"
+                  title={`${passCount} passed`}
+                  style={{flexGrow: passCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                />
+              )}
+              {failedTests > 0 && (
+                <span
+                  className="h-full bg-red-500/80 transition-all duration-500"
+                  title={`${failedTests} failed`}
+                  style={{flexGrow: failedTests, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                />
+              )}
+              {skipCount > 0 && (
+                <span
+                  className="h-full bg-amber-500/70 transition-all duration-500"
+                  title={`${skipCount} skipped`}
+                  style={{flexGrow: skipCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                />
+              )}
+              {notTestedCount > 0 && (
+                <span
+                  className="h-full bg-gray-600/90"
+                  title={`${notTestedCount} not run`}
+                  style={{flexGrow: notTestedCount, flexShrink: 0, flexBasis: 0, minWidth: 2}}
+                />
+              )}
             </div>
           </div>
         )}
@@ -735,7 +802,7 @@ export default function TestSetPage() {
               ))}
             </div>
           ) : viewMode === 'update' ? (
-            <div className="space-y-5">
+            <div className="space-y-2">
               {(testSet.analysisRuns ?? []).map((run) => {
                 const allRunTests = tests.filter((test) => test.analysisRunId === run.id)
                 const runTests = sortTestsByPriority(
@@ -743,52 +810,117 @@ export default function TestSetPage() {
                     ? allRunTests
                     : allRunTests.filter((t) => selectedStatuses.includes(t.status))
                 )
-                if (allRunTests.length > 0 && runTests.length === 0) return null
+                const isCollapsed = collapsedRunIds.has(run.id)
+                if (!isCollapsed && allRunTests.length > 0 && runTests.length === 0) return null
                 const branchCount = Object.keys(run.commitRanges).length
+                const statusItems = [
+                  {
+                    count: allRunTests.filter((t) => t.status === 'pass').length,
+                    label: 'pass',
+                    className: 'text-emerald-400',
+                  },
+                  {
+                    count: allRunTests.filter((t) => t.status === 'fail').length,
+                    label: 'fail',
+                    className: 'text-red-400',
+                  },
+                  {
+                    count: allRunTests.filter((t) => t.status === 'not_tested').length,
+                    label: 'pending',
+                    className: 'text-gray-400',
+                  },
+                  {
+                    count: allRunTests.filter((t) => t.status === 'skip').length,
+                    label: 'skip',
+                    className: 'text-gray-600',
+                  },
+                ].filter((item) => item.count > 0)
                 return (
                   <section key={run.id}>
-                    <div className="mb-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleRunCollapse(run.id)}
+                      className="group -mx-2 mb-2 w-full rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-gray-900/40">
                       <div className="flex items-center gap-3">
-                        <span className="rounded-md border border-indigo-400/25 bg-indigo-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-300">
+                        <span className="flex-shrink-0 rounded-md border border-indigo-400/25 bg-indigo-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-300">
                           Update
                         </span>
-                        <span className="min-w-0 truncate text-sm font-semibold text-gray-200">
-                          {run.label}
+                        <span className="flex min-w-0 items-baseline gap-2 truncate">
+                          <span className="text-sm font-semibold text-gray-200">{run.label}</span>
+                          <span className="flex-shrink-0 text-[11px] text-gray-600">
+                            {new Date(run.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </span>
-                        <span className="h-px min-w-6 flex-1 bg-gradient-to-r from-indigo-500/35 to-transparent" />
-                        <span className="flex-shrink-0 rounded-full border border-gray-700/70 bg-gray-950/60 px-2 py-1 text-[11px] text-gray-400">
-                          {branchCount} branch range{branchCount === 1 ? '' : 's'}
-                        </span>
-                        {runTests.length === 0 && (
-                          <span className="flex-shrink-0 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-300">
+                        <span className="h-px min-w-4 flex-1 bg-gradient-to-r from-indigo-500/35 to-transparent" />
+                        {allRunTests.length === 0 ? (
+                          <span className="flex-shrink-0 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">
                             no new tests
                           </span>
+                        ) : (
+                          <div className="flex flex-shrink-0 items-center gap-1.5 text-[11px]">
+                            {statusItems.map((item, i) => (
+                              <Fragment key={item.label}>
+                                {i > 0 && <span className="text-gray-700">·</span>}
+                                <span className={item.className}>
+                                  {item.count} {item.label}
+                                </span>
+                              </Fragment>
+                            ))}
+                          </div>
                         )}
-                      </div>
-                      {runTests.length === 0 && run.aiSummary && (
-                        <p className="mt-2 rounded-lg border border-gray-800/70 bg-gray-900/40 px-3 py-2 text-xs leading-relaxed text-gray-500">
-                          {run.aiSummary}
-                        </p>
-                      )}
-                    </div>
-                    {runTests.length > 0 && (
-                      <div className="space-y-1.5">
-                        {runTests.map((test) => (
-                          <TestItem
-                            key={test.id}
-                            test={test}
-                            highlighted={highlightedTestId === test.id}
-                            onStatusChange={(status) => updateTestStatus(test, status)}
-                            onDelete={() => deleteTest(test.id)}
-                            onEdit={
-                              testSet.status === 'active' ? () => setEditingTest(test) : undefined
-                            }
-                            onNoteChange={(note) => updateTestNote(test.id, note)}
-                            onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
-                            onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
+                        {!isCollapsed && (
+                          <span className="flex-shrink-0 rounded-full border border-gray-700/70 bg-gray-950/60 px-2 py-0.5 text-[11px] text-gray-500">
+                            {branchCount} {branchCount === 1 ? 'branch' : 'branches'}
+                          </span>
+                        )}
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          className={`flex-shrink-0 text-gray-600 transition-transform duration-200 group-hover:text-gray-400 ${isCollapsed ? '-rotate-90' : ''}`}>
+                          <path
+                            d="M2 4l4 4 4-4"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           />
-                        ))}
+                        </svg>
                       </div>
+                    </button>
+                    {!isCollapsed && (
+                      <>
+                        {runTests.length === 0 && run.aiSummary && (
+                          <p className="mb-3 rounded-lg border border-gray-800/70 bg-gray-900/40 px-3 py-2 text-xs leading-relaxed text-gray-500">
+                            {run.aiSummary}
+                          </p>
+                        )}
+                        {runTests.length > 0 && (
+                          <div className="space-y-1.5">
+                            {runTests.map((test) => (
+                              <TestItem
+                                key={test.id}
+                                test={test}
+                                highlighted={highlightedTestId === test.id}
+                                onStatusChange={(status) => updateTestStatus(test, status)}
+                                onDelete={() => deleteTest(test.id)}
+                                onEdit={
+                                  testSet.status === 'active'
+                                    ? () => setEditingTest(test)
+                                    : undefined
+                                }
+                                onNoteChange={(note) => updateTestNote(test.id, note)}
+                                onAttachmentUpload={(file) => uploadTestAttachment(test.id, file)}
+                                onAttachmentDelete={(attId) => deleteTestAttachment(test.id, attId)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </section>
                 )

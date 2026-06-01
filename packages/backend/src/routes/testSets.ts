@@ -1,6 +1,6 @@
 import {Router} from 'express'
 import {getDb} from '../db/index.js'
-import {testToDto, attachmentToDto} from '../db/mappers.js'
+import {testToDto, attachmentToDto, sqliteUtcToIso} from '../db/mappers.js'
 import {closeTestSetReview, deleteTestSet} from '../services/AnalysisService.js'
 import {repoDisplayName} from './testSets.helpers.js'
 
@@ -308,6 +308,6 @@ function runToDto(row: unknown) {
     commitRanges:
       typeof r.commit_ranges === 'string' ? JSON.parse(r.commit_ranges) : r.commit_ranges,
     aiSummary: r.ai_summary ?? null,
-    createdAt: r.created_at,
+    createdAt: sqliteUtcToIso((r.created_at as string | null) ?? null) ?? '',
   }
 }

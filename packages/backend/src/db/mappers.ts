@@ -1,7 +1,7 @@
 import type {Project, Repository, RepositoryBranch} from '../types/index.js'
 import {parseStringArray} from '../utils/json.js'
 
-function sqliteUtcToIso(value: string | null): string | null {
+export function sqliteUtcToIso(value: string | null): string | null {
   if (!value) return null
   return value.includes('T') ? value : `${value.replace(' ', 'T')}Z`
 }
