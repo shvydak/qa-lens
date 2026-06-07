@@ -4,7 +4,13 @@ import type Database from 'better-sqlite3'
 import {existsSync, mkdirSync, rmSync} from 'fs'
 import {join} from 'path'
 import {config} from '../../config.js'
-import {createTestDb, seedProject, seedRepo, seedTestSet} from '../helpers/db.js'
+import {
+  createTestDb,
+  seedAnalysisContext,
+  seedProject,
+  seedRepo,
+  seedTestSet,
+} from '../helpers/db.js'
 
 const gitMocks = vi.hoisted(() => ({
   getCommitsSince: vi.fn(),
@@ -426,8 +432,10 @@ describe('GET /api/projects/:projectId/repos', () => {
   it('counts commits from the active test set cursor when one exists', async () => {
     const projectId = seedProject(testDb)
     seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: 'baseline-hash'})
+    const acId = seedAnalysisContext(testDb, projectId, ['repo-1-branch'])
     seedTestSet(testDb, projectId, {
-      commitRanges: {'repo-1': {from: 'baseline-hash', to: 'active-head'}},
+      commitRanges: {'repo-1-branch': {from: 'baseline-hash', to: 'active-head'}},
+      analysisContextId: acId,
     })
     gitMocks.getCommitsSince.mockResolvedValue([{hash: 'new-1'}, {hash: 'new-2'}])
 
@@ -440,6 +448,28 @@ describe('GET /api/projects/:projectId/repos', () => {
       analysisCursor: 'active',
     })
     expect(gitMocks.getCommitsSince).toHaveBeenCalledWith('/fake/path', 'main', 'active-head')
+  })
+
+  it('ignores active test sets from a different branch combination', async () => {
+    const projectId = seedProject(testDb)
+    seedRepo(testDb, projectId, {id: 'repo-1', lastAnalyzedCommitHash: 'current-hash'})
+    seedRepo(testDb, projectId, {id: 'repo-2', localPath: '/fake/path-2', branch: 'develop'})
+    const otherContext = seedAnalysisContext(testDb, projectId, ['repo-2-branch'])
+    seedTestSet(testDb, projectId, {
+      commitRanges: {'repo-1-branch': {from: 'old-hash', to: 'stale-cursor'}},
+      analysisContextId: otherContext,
+    })
+    gitMocks.getCommitsSince.mockResolvedValue([])
+
+    const res = await request(app).get(`/api/projects/${projectId}/repos`)
+
+    expect(res.status).toBe(200)
+    const repo1 = res.body.data.find((r: {id: string}) => r.id === 'repo-1')
+    expect(repo1).toMatchObject({
+      unanalyzedCount: 0,
+      analysisCursor: 'baseline',
+    })
+    expect(gitMocks.getCommitsSince).toHaveBeenCalledWith('/fake/path', 'main', 'current-hash')
   })
 
   it('falls back to the last passed analysis cursor when there is no active test set', async () => {

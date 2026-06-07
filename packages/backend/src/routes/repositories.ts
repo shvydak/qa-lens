@@ -126,24 +126,9 @@ reposRouter.get(
           )
           .get(projectId, branchSignature) as {commit_ranges: string} | undefined)
       : undefined
-    const legacyActiveTestSet = activeTestSet
-      ? undefined
-      : (db
-          .prepare(
-            `
-      SELECT commit_ranges
-      FROM test_sets
-      WHERE project_id = ? AND status = 'active'
-      ORDER BY created_at DESC, rowid DESC
-      LIMIT 1
-    `
-          )
-          .get(projectId) as {commit_ranges: string} | undefined)
     const activeCommitRanges = activeTestSet
       ? (JSON.parse(activeTestSet.commit_ranges) as CommitRanges)
-      : legacyActiveTestSet
-        ? (JSON.parse(legacyActiveTestSet.commit_ranges) as CommitRanges)
-        : null
+      : null
 
     const enriched = await Promise.all(
       repoModels.map(async ({repo, branches, activeBranch}) => {

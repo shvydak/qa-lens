@@ -159,6 +159,8 @@ npm workspaces monorepo with two packages:
 
 **Repo analysis cursor UI:** Repo list responses include `analysisCursor` (`none`/`active`/`baseline`); active projects count pending commits from `activeTestSet.commit_ranges[repoId].to`, not `last_analyzed_commit_hash`.
 
+**Active test set lookup consistency:** Every query for an active test set (repos route, AnalysisService, etc.) must scope by `analysis_context_id` / `branch_signature` — never fall back to "any active test set in the project." Unscoped fallback causes stale cursors from a different branch combination to leak into `unanalyzedCount`, creating a mismatch between repo card indicators and actual analysis availability.
+
 **Timestamps:** SQLite `datetime('now')` returns UTC without a timezone suffix; normalize API timestamps to ISO `Z` in mappers before frontend relative-time parsing.
 
 **Active analysis updates:** If a project has an `active` test set, `AnalysisService.run()` analyzes from that test set's `commit_ranges[repo].to` to HEAD, appends AI tests to the same set, and expands `commit_ranges` instead of creating another active set.

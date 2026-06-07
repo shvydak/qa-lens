@@ -63,11 +63,33 @@ export function seedTestSet(
     id?: string
     status?: string
     commitRanges?: Record<string, {from: string | null; to: string}>
+    analysisContextId?: string
   } = {}
 ): string {
   const id = opts.id ?? 'ts-1'
   db.prepare(
-    'INSERT INTO test_sets (id, project_id, name, status, commit_ranges) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, projectId, 'Test Set', opts.status ?? 'active', JSON.stringify(opts.commitRanges ?? {}))
+    'INSERT INTO test_sets (id, project_id, name, status, commit_ranges, analysis_context_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    projectId,
+    'Test Set',
+    opts.status ?? 'active',
+    JSON.stringify(opts.commitRanges ?? {}),
+    opts.analysisContextId ?? null
+  )
+  return id
+}
+
+export function seedAnalysisContext(
+  db: Database.Database,
+  projectId: string,
+  branchIds: string[],
+  opts: {id?: string} = {}
+): string {
+  const id = opts.id ?? 'ac-1'
+  const sorted = [...branchIds].sort()
+  db.prepare(
+    'INSERT INTO analysis_contexts (id, project_id, name, branch_signature, branch_ids) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, projectId, 'Test context', sorted.join('|'), JSON.stringify(sorted))
   return id
 }
